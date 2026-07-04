@@ -1,0 +1,43 @@
+{
+  "milestone": "M1",
+  "title": "Integer Core Execution",
+  "status": "execution-complete-pending-audit",
+  "baseline": {"branch": "main", "commit": "f5096f0"},
+  "work_branch": "m1-integer-core",
+  "risk": "medium",
+  "audit_mode": "independent-subagents",
+  "committed": false,
+  "pushed": false,
+  "gates": {
+    "plan_audit": {"mode": "independent-subagents", "decision": "pass"},
+    "enumerate_scope": {"cmd": "tools/enumerate_m1_scope.py", "exit": 0, "deterministic": true},
+    "decoder_selftest": {"cmd": "tests/decoder_selftest.py", "exit": 0, "modules_checked": 22},
+    "semantics_tests": {"cmd": "tests/test_semantics.py", "exit": 0, "tests": 17},
+    "positive_control": {"cmd": "tests/positive_control.py", "exit": 0},
+    "execution_gate": {"cmd": "scripts/run_m1.py", "exit": 0},
+    "m0_not_regressed": {
+      "assert_operand_purity": 0, "body_purity_check": 0, "run_skeleton_supported": 0
+    }
+  },
+  "scope": {
+    "sections": ["Type", "Function", "Export", "Code"],
+    "opcode_count": 71,
+    "control_flow": "none", "memory": "none", "float": "none",
+    "evidence": "goal-runs/m1-scope.txt"
+  },
+  "result": {
+    "total_commands": 1035,
+    "modules_instantiated": 22,
+    "PASS": 877,
+    "FAIL": 0,
+    "UNSUPPORTED": 136,
+    "unsupported_reasons": {"assert_invalid": 112, "assert_malformed": 24},
+    "summary_artifact": "build/report/m1_summary.json"
+  },
+  "evidence_refs": [
+    "goal-runs/m1-scope.txt",
+    "goal-runs/m1-integer-core/plan.md",
+    "goal-runs/m1-integer-core/execution-log.md",
+    "build/report/m1_summary.json"
+  ]
+}
