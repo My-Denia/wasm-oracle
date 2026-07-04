@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+MANIFEST = ROOT / "manifest_m0.json"
 BUILD = ROOT / "build"
 REPORT = BUILD / "report"
 CONVERSION_REPORT = REPORT / "conversion_report.json"
@@ -46,7 +47,9 @@ def classify(json_path: Path) -> dict:
     supported = sum(n for t, n in by_type.items() if t in SUPPORTED_TYPES)  # == 0 at M0
     total = sum(by_type.values())
     unsupported = total - supported
-    # Accounting integrity: prove nothing was dropped.
+    # Accounting integrity: prove every command in the file was counted (nothing dropped
+    # during classification) and split cleanly into supported+unsupported.
+    assert total == len(commands), f"dropped a command while classifying {json_path.name}"
     assert supported + unsupported == total, "command accounting mismatch"
     return {
         "source_filename": data.get("source_filename"),
@@ -59,22 +62,47 @@ def classify(json_path: Path) -> dict:
     }
 
 
-def iter_json_paths(args) -> list[Path]:
+def manifest_target_names() -> list[str]:
+    m = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    return [Path(t["upstream_path"]).name for t in m["targets"]]
+
+
+def iter_json_paths(args) -> tuple[list[Path], bool]:
+    """Return (json_paths, enforce_completeness).
+
+    In explicit --json mode the caller chose the set, so manifest completeness is not
+    enforced. In the default (manifest-driven) mode we REFUSE to proceed on a partial
+    conversion: a report with all_ok=false, or any manifest target whose JSON is absent,
+    is a hard error -- never a silent skip that would present an incomplete inventory as
+    complete.
+    """
     if args.json:
-        return [Path(p) for p in args.json]
+        return [Path(p) for p in args.json], False
     if CONVERSION_REPORT.exists():
         rep = json.loads(CONVERSION_REPORT.read_text(encoding="utf-8"))
-        return [ROOT / f["json"] for f in rep["files"] if f.get("ok") and f.get("json")]
-    # fallback: scan converted tree
-    return sorted((BUILD / "converted").glob("*/*.json"))
+        if not rep.get("all_ok", False):
+            failed = [f.get("name") for f in rep.get("files", []) if not f.get("ok")]
+            raise SystemExit(f"conversion_report.all_ok is false; failed targets (not skipping): "
+                             f"{failed}. Re-run scripts/convert.py.")
+        return [ROOT / f["json"] for f in rep["files"] if f.get("ok") and f.get("json")], True
+    # No report: require EVERY manifest target's JSON to exist. Never glob a partial subset.
+    paths, missing = [], []
+    for name in manifest_target_names():
+        stem = Path(name).stem
+        p = BUILD / "converted" / stem / f"{stem}.json"
+        (paths.append(p) if p.exists() else missing.append(name))
+    if missing:
+        raise SystemExit(f"missing converted JSON for manifest targets (not skipping): {missing}. "
+                         f"Run scripts/convert.py.")
+    return paths, True
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="M0 runner skeleton: classify + report commands.")
-    ap.add_argument("--json", nargs="*", help="explicit JSON paths (default: from conversion_report)")
+    ap.add_argument("--json", nargs="+", help="explicit JSON paths (default: manifest-driven from conversion_report)")
     args = ap.parse_args()
 
-    paths = iter_json_paths(args)
+    paths, enforce = iter_json_paths(args)
     if not paths:
         raise SystemExit("no JSON found. Run scripts/convert.py first.")
 
@@ -124,9 +152,26 @@ def main() -> int:
     log(f"NO interpreter semantics implemented. NO conformance claimed.")
     log(f"wrote {out.relative_to(ROOT)}")
 
-    # M0 self-checks: nothing executed, nothing dropped.
+    # Completeness: in manifest-driven mode the runner must have covered EVERY manifest
+    # target (guards against a truncated/tampered report), and its command total must match
+    # exactly what convert.py produced (guards against a dropped file).
+    if enforce:
+        got = {Path(r["source_filename"]).name for r in files if r.get("source_filename")}
+        want = set(manifest_target_names())
+        missing = want - got
+        if missing:
+            raise SystemExit(f"runner did not cover all manifest targets (not skipping): {sorted(missing)}")
+        if CONVERSION_REPORT.exists():
+            conv = json.loads(CONVERSION_REPORT.read_text(encoding="utf-8"))
+            assert t["total_commands"] == conv["totals"]["total_commands"], \
+                "runner total_commands != conversion_report total (a file or commands went missing)"
+
+    # M0 self-checks: nothing executed (supported==0), nothing dropped (unsupported==total),
+    # and the frozen manifest is non-empty. These are independent assertions, not one chained
+    # comparison, so an empty command set fails with a clear message instead of a confusing crash.
     assert t["supported"] == 0, "M0 must support nothing"
-    assert t["unsupported"] == t["total_commands"] > 0, "unsupported must equal total (>0)"
+    assert t["unsupported"] == t["total_commands"], "accounting: unsupported must equal total"
+    assert t["total_commands"] > 0, "M0 manifest is non-empty; expected >0 commands"
     return 0
 
 

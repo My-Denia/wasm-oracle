@@ -42,9 +42,11 @@ def convert_one(wast2json: Path, src: Path, out_dir: Path, stem: str) -> dict:
     out_dir.mkdir(parents=True)
     json_path = out_dir / f"{stem}.json"
     # DEFAULT features on purpose: no --enable-* flags (scope guardrail).
+    # Decode stderr as UTF-8 explicitly (not the process locale) so a diagnostic with
+    # non-locale bytes can't mojibake or crash convert_one on a non-UTF8 machine.
     proc = subprocess.run(
         [str(wast2json), str(src), "-o", str(json_path)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     rec: dict = {"name": src.name, "returncode": proc.returncode}
     if proc.returncode != 0 or not json_path.exists():
@@ -81,7 +83,13 @@ def main() -> int:
 
     files, grand = [], Counter()
     for t in manifest["targets"]:
-        src = core / Path(t["upstream_path"]).name
+        base = Path(t["upstream_path"]).name
+        # Enforce the manifest's two-field contract: the declared name must match the
+        # upstream basename, so a typo/rename can't silently resolve to a different file.
+        if t.get("name") != base:
+            raise SystemExit(f"manifest target name '{t.get('name')}' != upstream basename "
+                             f"'{base}' for {t['upstream_path']}; fix manifest_m0.json.")
+        src = core / base
         stem = src.stem
         if not src.exists():
             files.append({"name": src.name, "ok": False, "returncode": None,
