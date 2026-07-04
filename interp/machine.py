@@ -57,12 +57,18 @@ def invoke(module: Module, field_name: str, args: list[int]) -> list[int]:
     locals_: list[int] = [V.to_unsigned(_wbits(pt), a) for pt, a in zip(ftype.params, args)]
     locals_ += [0] * len(func.local_types)
     seq = _structure(func.body)          # flat body -> nested block tree (structured control flow)
+    nres = len(ftype.results)
     stack: list[int] = []
+    # The function body is an implicit block whose label carries the function's results: a `br` to
+    # the outermost depth (directly, or from within nested blocks) branches to the function end —
+    # the same observable effect as `return`. Seed that label so such branches resolve instead of
+    # indexing off the label stack.
     try:
-        _exec_seq(seq, stack, locals_, [])
+        _exec_seq(seq, stack, locals_, [_Label("func", nres, 0)])
     except _Return:
         pass
-    nres = len(ftype.results)
+    except _Branch:
+        pass                             # branch to the function label: results already arranged
     if len(stack) < nres:
         raise Trap("stack underflow producing results")  # structurally impossible for valid modules
     return stack[len(stack) - nres:]
@@ -116,24 +122,26 @@ class _Return(Exception):
 def _structure(body: list[Instr]) -> list:
     """Flat instruction list (with block/loop/if/else/end tokens) -> nested sequence of plain Instr
     and _Block nodes. The function body's terminating `end` closes the top sequence."""
-    seq, i = _parse_seq(body, 0)
-    if i != len(body):
-        raise Unsupported(f"trailing instructions after function body end ({i}/{len(body)})")
+    seq, i, stop = _parse_seq(body, 0)
+    if stop != "end" or i != len(body):
+        raise Unsupported(f"malformed function body (stopped on {stop!r} at {i}/{len(body)})")
     return seq
 
 
-def _parse_seq(body: list[Instr], i: int) -> tuple[list, int]:
-    """Parse instructions into a sequence until the matching `end` (consumed) or an `else` (left for
-    the enclosing `if`). Nested block/loop/if recurse, so each `end` pairs with its own opener and
-    only the function's terminal `end` closes the top sequence."""
+def _parse_seq(body: list[Instr], i: int) -> tuple[list, int, str]:
+    """Parse instructions into a sequence until the matching `end` (consumed) or an `else` (NOT
+    consumed). Returns (seq, next_index, stop) where stop is "end" or "else". The stop flag is what
+    tells `_parse_block` whether an `else` it lands on is its OWN: a token-only lookahead would let
+    an else-less inner `if` (whose then-branch closed on its own `end`) wrongly claim the following
+    `else` that actually belongs to an enclosing `if`."""
     seq: list = []
     n = len(body)
     while i < n:
         op = body[i].op
         if op == "end":
-            return seq, i + 1
+            return seq, i + 1, "end"
         if op == "else":
-            return seq, i                        # not consumed; the enclosing `if` handles it
+            return seq, i, "else"                # not consumed; the enclosing `if` owns it
         if op in ("block", "loop", "if"):
             blk, i = _parse_block(body, i)
             seq.append(blk)
@@ -146,10 +154,17 @@ def _parse_seq(body: list[Instr], i: int) -> tuple[list, int]:
 def _parse_block(body: list[Instr], i: int) -> tuple[_Block, int]:
     opener = body[i]
     kind = opener.op
-    then_seq, i = _parse_seq(body, i + 1)         # stops after `end`, or at `else`
+    then_seq, i, stop = _parse_seq(body, i + 1)   # stops after THIS block's `end`, or at an `else`
     else_seq = None
-    if kind == "if" and i < len(body) and body[i].op == "else":
-        else_seq, i = _parse_seq(body, i + 1)     # consume `else`, parse to the block's `end`
+    if stop == "else":
+        # The `else` is only owned by the `if` whose then-branch we just parsed. If the then-branch
+        # instead closed on its own `end` (stop == "end"), a following `else` belongs to an ENCLOSING
+        # `if` and must not be consumed here.
+        if kind != "if":
+            raise Unsupported(f"`else` inside a {kind}, not an if")
+        else_seq, i, stop2 = _parse_seq(body, i + 1)   # consume `else`, parse to the if's `end`
+        if stop2 != "end":
+            raise Unsupported("malformed if: else-branch not terminated by end")
     return _Block(kind, opener.bt or [], then_seq, else_seq), i
 
 

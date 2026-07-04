@@ -106,6 +106,19 @@ class IfSelection(unittest.TestCase):
         self.assertEqual(run(["i32"], ["i32"], body, [0], locals_=["i32"]), [0])
         self.assertEqual(run(["i32"], ["i32"], body, [1], locals_=["i32"]), [9])
 
+    def test_nested_elseless_if_does_not_steal_outer_else(self):
+        # Regression (Codex P2): an else-less inner `if` that is the LAST instruction of an outer
+        # if's then-branch must NOT consume the outer `else`. p0=outer cond, p1=inner cond, local2=out.
+        #   outer if { inner if(no else) { out=1 } }  else { out=2 }
+        body = [GET(0), IF([]),
+                    GET(1), IF([]), C32(1), SET(2), END,
+                ELSE, C32(2), SET(2), END,
+                GET(2), END]
+        self.assertEqual(run(["i32", "i32"], ["i32"], body, [1, 1], locals_=["i32"]), [1])
+        self.assertEqual(run(["i32", "i32"], ["i32"], body, [1, 0], locals_=["i32"]), [0])
+        self.assertEqual(run(["i32", "i32"], ["i32"], body, [0, 1], locals_=["i32"]), [2])
+        self.assertEqual(run(["i32", "i32"], ["i32"], body, [0, 0], locals_=["i32"]), [2])
+
 
 class Loop(unittest.TestCase):
     def test_loop_br_if_countdown_sum(self):
@@ -167,6 +180,25 @@ class ReturnDropNopArity(unittest.TestCase):
         # switch.wast exercises an i64 block result; confirm the 64-bit path works.
         body = [BLOCK(["i64"]), C64(0x1_0000_0000), END, END]
         self.assertEqual(run([], ["i64"], body), [0x1_0000_0000])
+
+
+class FunctionLabelBranch(unittest.TestCase):
+    # Regression (Codex P2): the function body is an implicit block; a `br` to its label returns the
+    # function result — the same observable effect as `return` — directly or from nested blocks.
+    def test_br0_at_top_level_returns_result(self):
+        # i32.const 7 ; br 0 ; i32.const 99  ->  br 0 carries 7 to the function end, skips 99
+        self.assertEqual(run([], ["i32"], [C32(7), BR(0), C32(99), END]), [7])
+
+    def test_br_to_function_label_from_nested_block(self):
+        # inside one block, br 1 targets the function label
+        body = [BLOCK([]), C32(5), BR(1), END, C32(99), END]
+        self.assertEqual(run([], ["i32"], body), [5])
+
+    def test_br_if_to_function_label(self):
+        # br_if 0 at top level: true -> carry 10 to the function end; false -> fall through to 20
+        body = [C32(10), GET(0), BR_IF(0), DROP, C32(20), END]
+        self.assertEqual(run(["i32"], ["i32"], body, [1]), [10])
+        self.assertEqual(run(["i32"], ["i32"], body, [0]), [20])
 
 
 if __name__ == "__main__":

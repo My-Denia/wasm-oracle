@@ -72,6 +72,22 @@ Baseline: `main` @ `ca2abb1` (clean). All work on-disk on `main`'s worktree; NOT
   UNSUPPORTED=136 EXIT 0.
 - Final M2 chain re-run end-to-end: all EXIT 0.
 
+## Phase 6 — Codex review (PR #4)
+Codex (chatgpt-codex-connector) left 2 P2 inline findings on commit 88227ab — both real latent
+control-flow bugs NOT exercised by labels/switch (hence 51/51 + 19 units were green), confirmed by
+tracing:
+- `interp/machine.py` if/else parse: an else-less inner `if` at the tail of an outer if's
+  then-branch stole the outer `else` (token-only lookahead). Fixed: `_parse_seq` now returns a
+  stop flag ("end" vs "else") and `_parse_block` only claims an `else` when its own then-branch
+  stopped on one.
+- `interp/machine.py` invoke: empty label stack omitted WASM's implicit function-body label, so a
+  `br`/`br_if`/`br_table` to the function depth (e.g. `i32.const 7; br 0`) indexed off `labels`.
+  Fixed: seed `_Label("func", nres, 0)` and catch a branch to it (== return).
+- Regression tests added to `tests/test_control_flow.py` (now 23): nested else-less if in an
+  if/else; br 0 at top level; br to function label from a nested block; br_if to function label.
+- Re-verified: test_control_flow 23 OK, test_semantics 17 OK, run_m2 51/0/4, run_m1 877/0/136,
+  both decoder self-tests green. Fixes touch only interp/machine.py + the test file.
+
 ## Changed vs new files
 - Modified (additive / backward-compatible): interp/decoder.py, interp/machine.py,
   scripts/convert.py, tests/decoder_selftest.py, tools/assert_operand_purity.py,
