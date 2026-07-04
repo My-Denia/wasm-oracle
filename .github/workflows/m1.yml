@@ -1,0 +1,107 @@
+# M1 Integer Core CI (Linux).
+# Fetches the pinned toolchain + spec test files, converts the frozen manifest, and runs the
+# M1 integer executor against the 4 targets, diffing every value assertion against the frozen
+# reference-interpreter oracle (the `expected` values). Nonzero on any FAIL.
+#
+# Separate from m0.yml BY DESIGN: M0's gate asserts "supports nothing" (supported==0); M1's gate
+# asserts execution correctness. Keeping them in distinct workflows means the M1 work does not
+# touch — and cannot regress — the M0 harness assertions. Unlike m0.yml this needs no OCaml: the
+# oracle is the embedded frozen `expected` values, not a live interpreter build.
+name: M1 Integer Core
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m1-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WASM2WAT: vendor/wabt/bin/wasm2wat
+  WASM_OBJDUMP: vendor/wabt/bin/wasm-objdump
+
+jobs:
+  integer-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch pinned spec (test/core) + toolchain (WABT@release, sha256-verified)
+        run: python scripts/fetch_oracle.py
+
+      - name: Convert frozen manifest via WABT wast2json (post-MVP extensions disabled = guardrail)
+        run: python scripts/convert.py
+
+      - name: M0 purity gate — assert-operand layer (no f32/f64 in target assertions)
+        run: python tools/assert_operand_purity.py
+
+      - name: M0 purity gate — body layer (no f32/f64 in instantiated target modules)
+        run: python tools/body_purity_check.py
+
+      - name: Re-derive M1 scope and prove the committed evidence is reproducible
+        # Regenerate goal-runs/m1-scope.txt from the real modules; it must byte-match what is
+        # committed (the enumerated opcode/section scope is evidence, and must stay reproducible).
+        run: |
+          python tools/enumerate_m1_scope.py
+          git diff --exit-code goal-runs/m1-scope.txt \
+            || (echo "m1-scope.txt drifted from real data — re-run tools/enumerate_m1_scope.py and commit" && exit 1)
+
+      - name: M1.2 decoder self-test (decoder vs pinned wasm-objdump, all 22 modules)
+        run: python tests/decoder_selftest.py
+
+      - name: M1.3 interpreter semantics unit tests
+        run: python tests/test_semantics.py
+
+      - name: M1.5 comparator positive control (a wrong expected MUST classify FAIL)
+        run: python tests/positive_control.py
+
+      - name: M1 integer-core execution gate (oracle diff over the 4 targets; nonzero on any FAIL)
+        run: python scripts/run_m1.py
+
+      - name: Assert M1 conditions (0 FAIL, nothing dropped, every target covered)
+        run: |
+          python - <<'PY'
+          import json
+          conv = json.load(open("build/report/conversion_report.json"))
+          m1   = json.load(open("build/report/m1_summary.json"))
+          t = m1["totals"]
+
+          # 1. Zero FAIL — every in-scope assertion matched the frozen oracle.
+          assert t["FAIL"] == 0, f"M1 has {t['FAIL']} FAIL(s) — see build/report/m1_summary.json"
+
+          # 2. No command dropped: modules + PASS + FAIL + UNSUPPORTED == total, and the total
+          #    equals exactly what conversion produced (no file silently missed).
+          assert (t["modules_instantiated"] + t["PASS"] + t["FAIL"] + t["UNSUPPORTED"]) == t["total"], \
+              "M1 accounting mismatch"
+          assert t["total"] == conv["totals"]["total_commands"], \
+              "M1 total_commands != conversion_report total (a file went missing)"
+
+          # 3. It actually executed something, and UNSUPPORTED is only validation commands.
+          assert t["PASS"] > 0 and t["modules_instantiated"] > 0, "M1 executed nothing"
+          for reason in t["unsupported_reasons"]:
+              assert "validation" in reason, f"unexpected UNSUPPORTED reason: {reason}"
+
+          print(f"M1 CI assertions passed: PASS={t['PASS']} FAIL=0 UNSUPPORTED={t['UNSUPPORTED']} "
+                f"modules={t['modules_instantiated']} total={t['total']} (== conversion total).")
+          print("Every in-scope integer assertion matches the frozen reference-interpreter oracle.")
+          PY
+
+      - name: Upload M1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-report
+          path: |
+            build/report/m1_summary.json
+            build/report/conversion_report.json
+            goal-runs/m1-scope.txt
