@@ -49,8 +49,16 @@ jobs:
           ./wasm ../test/core/i32.wast
           echo "reference interpreter built and ran i32.wast (exit $?)"
 
-      - name: Convert frozen manifest via WABT wast2json (DEFAULT features = scope guardrail)
+      - name: Convert frozen manifest via WABT wast2json (post-MVP extensions disabled = guardrail)
         run: python scripts/convert.py
+
+      - name: Purity gate — assert-operand layer (no f32/f64 in target assertions)
+        run: python tools/assert_operand_purity.py
+
+      - name: Purity gate — body layer (no f32/f64 opcodes in instantiated target modules)
+        run: python tools/body_purity_check.py
+        env:
+          WASM_OBJDUMP: vendor/wabt/bin/wasm-objdump
 
       - name: Run the M0 runner skeleton (reports command inventory; executes nothing)
         run: python scripts/run_skeleton.py
