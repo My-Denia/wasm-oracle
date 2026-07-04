@@ -32,12 +32,16 @@ scripts/fetch_oracle.py   fetch spec@SHA (oracle) + WABT@release (toolchain), sh
 scripts/convert.py        wast2json over the manifest -> JSON + .wasm, per-file command counts
 scripts/run_skeleton.py   read JSON, classify every command, report UNSUPPORTED, machine summary
 tools/enumerate_m1_scope.py  M1 Step 0: enumerate real opcodes+sections -> goal-runs/m1-scope.txt
-interp/                   M1 integer core: decoder, values, machine (interpreter), runner
+interp/                   integer core + M2 control flow: decoder, values, machine (interpreter), runner
 scripts/run_m1.py         M1 assert-runner: execute the 4 targets, diff vs oracle, PASS/FAIL/UNSUPPORTED
-tests/                    M1 gates: decoder self-test, semantics units, comparator positive control
+tests/                    gates: decoder self-test, semantics + control-flow units, comparator positive controls
 .github/workflows/m0.yml  Linux CI: fetch/build oracle -> convert -> run skeleton -> assert
 .github/workflows/m1.yml  Linux CI: fetch -> convert -> purity gates -> M1 tests -> execution gate
 goal-runs/m1-scope.txt    committed evidence: the enumerated M1 opcode/section scope
+manifest_m2.json          frozen: M2 targets (labels, switch) + reasoned exclusions (M0/M1 manifest untouched)
+tools/enumerate_m2_scope.py  M2 Step 0: FAIL-CLOSED scope gate -> goal-runs/m2-control-flow/scope.txt
+scripts/run_m2.py         M2 assert-runner: execute labels/switch, diff vs oracle (reuses run_m1.run_file)
+.github/workflows/m2.yml  Linux CI: fetch -> convert(m2) -> purity(m2) -> scope gate -> decoder/units/positive -> execution gate
 vendor/  build/           generated (gitignored): fetched oracle/toolchain, converted JSON, reports
 ```
 
@@ -101,5 +105,55 @@ python tests/positive_control.py        # prove the comparator FAILS on a wrong 
 python scripts/run_m1.py                # -> build/report/m1_summary.json (nonzero on any FAIL)
 ```
 
-Validation (`assert_invalid` / `assert_malformed`), structured control flow, linear memory, and
-floats remain out of scope and are deferred to later milestones (M2–M5).
+Validation (`assert_invalid` / `assert_malformed`), linear memory, and floats remain out of scope
+and are deferred to later milestones (M3–M5); structured control flow is M2, below.
+
+## M2 — Structured Control Flow (implemented)
+
+M2 extends the interpreter to **structured control flow** — `block`, `loop`, `if`/`else`, `br`,
+`br_if`, `br_table`, `return`, `drop`, `nop` (plus `local.set`) — and **nothing else**: no linear
+memory, no globals, no calls, no validation execution, no floats.
+
+**The targets were a curation problem, resolved by data.** The canonical control-flow files in
+`test/core` (`block`, `loop`, `if`, `br`, `return`, …) are *not* integer-value-clean: each has one
+big instantiated module that mixes `f32`/`f64` functions in with the integer ones and pulls in
+`call` plus memory/global/table sections, so it fails the body-purity discipline. Several dedicated
+files (`br_if`, `br_table`, `select`, `call_indirect`, `func`) *fail conversion* under the frozen
+guardrail flags (they use typed function references / typed `select` / `externref` / `declare`) —
+the guardrail working as designed. A read-only probe over every candidate identified exactly **two**
+files that are integer-value-clean, stay inside the existing 4 sections, pull in no
+call/memory/global/float, and exercise real control flow: **`labels.wast`** and **`switch.wast`**
+(frozen in a new `manifest_m2.json`; `manifest_m0.json` is untouched). Together they cover the full
+minimal MVP structured-control-flow opcode set — with no `select`, no `unreachable`, and **no new
+binary sections** (still `{Type,Function,Export,Code}`). One opcode, `local.set`, was surfaced by
+the **fail-closed** Step-0 enumerator (`tools/enumerate_m2_scope.py`, which *exits nonzero* if the
+real data steps outside the frozen scope) — a required opcode forced into the open before any
+interpreter code, not discovered by a later failure.
+
+The decoder keeps function bodies flat (so the decoder self-test still matches `wasm-objdump`
+token-for-token); the interpreter parses the flat stream into a nested block tree and evaluates it
+with a value stack + a label stack (`interp/machine.py`). Block-type immediates are decoded as
+signed-LEB and restricted to `empty`/`i32`/`i64` (float/multi-value ⇒ `Unsupported`).
+
+Result over the 2 targets (57 commands): every in-scope control-flow value assertion matches the
+oracle — **PASS=51, FAIL=0**, with **UNSUPPORTED=4** (the `assert_invalid` validation commands,
+reported with a count, not skipped) and 2 modules instantiated.
+`modules + PASS + FAIL + UNSUPPORTED == 57`: nothing dropped. A comparator positive control
+(`tests/positive_control_m2.py`) feeds a deliberately wrong `expected` on a real control-flow
+assertion and confirms `FAIL` fires, so a green run is evidence the comparator works. M1 is not
+regressed: `scripts/run_m1.py` still reports `PASS=877, FAIL=0, UNSUPPORTED=136`.
+
+```sh
+python scripts/convert.py --manifest manifest_m2.json \
+    --report build/report/conversion_report_m2.json      # -> build/converted/{labels,switch}/*
+python tools/enumerate_m2_scope.py       # FAIL-CLOSED scope gate -> goal-runs/m2-control-flow/scope.txt
+python tests/decoder_selftest.py --manifest manifest_m2.json   # decoder vs wasm-objdump (labels/switch)
+python tests/test_control_flow.py        # structured-control-flow semantics units
+python tests/positive_control_m2.py      # prove the comparator FAILS on a wrong expected
+python scripts/run_m2.py                 # -> build/report/m2_summary.json (nonzero on any FAIL)
+```
+
+M2 claims exactly this and no more: an integer interpreter that executes structured control flow
+over two data-selected `test/core` files and matches the reference-interpreter oracle on every
+in-scope assertion. It is **not** a conformance-complete WebAssembly implementation — memory,
+validation, floats, calls, and the many control-flow files that require them remain out of scope.

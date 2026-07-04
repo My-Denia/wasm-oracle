@@ -1,0 +1,72 @@
+M2 SCOPE — enumerated from real data (instantiated modules of the M2 targets), FAIL-CLOSED
+==============================================================================
+spec commit : 82cd4f9555dbf80b20611d8d3a2c6e6f444b228c
+wabt        : 1.0.41 (wasm-objdump; authoritative disassembler)
+targets     : labels.wast, switch.wast
+modules enumerated (type==module instances): 2
+method      : wasm-objdump -h (sections) + -d (opcodes + block-type signatures) over
+              the instantiated module set. Read from the disassembler, not guessed.
+              Deterministic: sorted; re-run is byte-identical.
+
+BINARY SECTIONS PRESENT (decoder scope) — 4 distinct:
+    Code         in: labels.wast, switch.wast
+    Export       in: labels.wast, switch.wast
+    Function     in: labels.wast, switch.wast
+    Type         in: labels.wast, switch.wast
+
+BLOCK-TYPE SIGNATURES PRESENT (block/loop/if result forms) — 3:
+    empty, i32, i64
+
+INSTRUCTION OPCODES PRESENT (interpreter scope) — 25 distinct:
+    opcode                 occurrences  #modules
+    block                           61         2
+    br                              34         2
+    br_if                            8         1
+    br_table                         6         2
+    drop                             7         1
+    else                             9         1
+    end                            106         2
+    i32.add                         21         2
+    i32.and                          1         1
+    i32.const                      106         2
+    i32.eq                           4         1
+    i32.gt_u                         1         1
+    i32.mul                          2         2
+    i32.or                           6         1
+    i32.sub                          1         1
+    i32.wrap_i64                     1         1
+    i32.xor                          1         1
+    i64.const                        4         1
+    i64.sub                          1         1
+    if                              17         1
+    local.get                       53         2
+    local.set                       55         2
+    loop                             6         1
+    nop                              2         1
+    return                           6         2
+
+COMMAND-TYPE INVENTORY (2 files, 57 commands):
+    assert_invalid           4
+    assert_return           51
+    module                   2
+
+DISTINCT INVOKED EXPORT FIELDS (value asserts + actions): 22
+
+PER-FILE PROVENANCE:
+  labels.wast    modules= 1  sections=['Code', 'Export', 'Function', 'Type']
+                 blocktypes=['empty', 'i32']
+                 opcodes=['block', 'br', 'br_if', 'br_table', 'drop', 'else', 'end', 'i32.add', 'i32.const', 'i32.eq', 'i32.gt_u', 'i32.mul', 'i32.or', 'i32.xor', 'if', 'local.get', 'local.set', 'loop', 'return']
+  switch.wast    modules= 1  sections=['Code', 'Export', 'Function', 'Type']
+                 blocktypes=['empty', 'i32', 'i64']
+                 opcodes=['block', 'br', 'br_table', 'end', 'i32.add', 'i32.and', 'i32.const', 'i32.mul', 'i32.sub', 'i32.wrap_i64', 'i64.const', 'i64.sub', 'local.get', 'local.set', 'nop', 'return']
+
+SCOPE FINDINGS (control-flow milestone):
+  structured-control-flow opcodes present: ['block', 'br', 'br_if', 'br_table', 'drop', 'else', 'if', 'loop', 'nop']
+  'end'/'return' present: ['end', 'return']
+  memory opcodes present (must be NONE): NONE
+  float opcodes present (must be NONE): NONE
+  call opcodes present (must be NONE for M2): NONE
+
+SCOPE GATE (fail-closed):
+  VERDICT: IN SCOPE — sections ⊆ {Type,Function,Export,Code}; opcodes ⊆ frozen M2 set;
+           block-types ⊆ {empty,i32,i64}; float/memory/call = NONE. Decoder work unblocked.

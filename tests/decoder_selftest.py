@@ -18,7 +18,7 @@ Reproduce (Linux/WSL, after scripts/convert.py):
 Exit 0 = decoder matches WABT for all modules; 1 = mismatch or evidence/tool missing.
 """
 from __future__ import annotations
-import json, os, re, subprocess, sys
+import argparse, json, os, re, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -78,7 +78,15 @@ def objdump_func_opcode_streams(wasm: Path) -> list[list[str]]:
         if cur is not None and "|" in ln:
             rhs = ln.split("|", 1)[1].strip()
             if rhs:
-                cur.append(rhs.split()[0])
+                mn = rhs.split()[0]
+                # `-d` prints a function's LOCAL DECLARATIONS as `local[0] type=i32` lines before
+                # the body; those are declarations, not instructions (the decoder holds them in
+                # Func.local_types, not the body). Skip them — the real ops are `local.get`/
+                # `local.set` (dot, not bracket). M1 modules declared no locals, so this is inert
+                # there and only matters for the M2 targets.
+                if mn.startswith("local["):
+                    continue
+                cur.append(mn)
     return streams
 
 
@@ -88,10 +96,14 @@ def modules_instantiated(conv: dict) -> list[str]:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description="Decoder self-test vs pinned wasm-objdump.")
+    ap.add_argument("--manifest", default=str(MANIFEST),
+                    help="manifest JSON whose targets to check (default: manifest_m0.json)")
+    args = ap.parse_args()
     if not (os.path.exists(OBJDUMP) or _on_path(OBJDUMP)):
         print(f"FAIL: wasm-objdump not found at {OBJDUMP} (run scripts/convert.py first).")
         return 1
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     targets = [t["name"] for t in manifest["targets"]]
     checked, mismatches = 0, []
     for name in targets:

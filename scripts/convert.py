@@ -69,11 +69,15 @@ def convert_one(wast2json: Path, flags: list, src: Path, out_dir: Path, stem: st
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Convert frozen manifest .wast -> WABT JSON (+wasm).")
+    ap = argparse.ArgumentParser(description="Convert a frozen manifest's .wast -> WABT JSON (+wasm).")
     ap.add_argument("--wast2json", help="override path to wast2json")
+    ap.add_argument("--manifest", default=str(MANIFEST),
+                    help="manifest JSON to convert (default: manifest_m0.json)")
+    ap.add_argument("--report", default=str(REPORT / "conversion_report.json"),
+                    help="output conversion report path (default: build/report/conversion_report.json)")
     args = ap.parse_args()
 
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     wast2json = Path(args.wast2json) if args.wast2json else find_wast2json()
     core = VENDOR / "spec" / manifest["spec"]["test_core_dir"]
     if not core.is_dir():
@@ -126,7 +130,10 @@ def main() -> int:
             "by_type": dict(sorted(grand.items())),
         },
     }
-    out = REPORT / "conversion_report.json"
+    out = Path(args.report)
+    if not out.is_absolute():
+        out = ROOT / out
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     log(f"\n{report['totals']['converted_ok']}/{len(files)} converted; "
         f"{report['totals']['total_commands']} total commands")

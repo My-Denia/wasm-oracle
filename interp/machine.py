@@ -1,4 +1,4 @@
-"""machine.py — the M1 integer interpreter.
+"""machine.py — the integer interpreter (M1 core + M2 structured control flow).
 
 Executes a decoded Module's function bodies over an i32/i64 value stack, with EXACT integer
 semantics per the WebAssembly spec (stable, not time-sensitive): wrapping arithmetic mod 2**N;
@@ -8,16 +8,17 @@ traps. There are exactly two trap texts: "integer divide by zero" (from div_s / 
 rem_u by zero) and "integer overflow" (from signed division div_s of INT_MIN by -1). Signed
 remainder rem_s of INT_MIN by -1 does NOT trap — it yields 0.
 
-M1 scope is a straight-line integer core: the enumerated opcode set contains NO structured
-control flow (block/loop/if/br*), so a function body is executed as a linear instruction
-sequence; `return` and the body-terminating `end` both finish the call, yielding the top
-`len(results)` stack values. Any opcode outside the decoded scope cannot appear (the decoder
-rejects it); a defensive KeyError-style guard still raises Unsupported.
+M2 adds STRUCTURED CONTROL FLOW (block / loop / if / else / br / br_if / br_table / return / drop /
+nop) plus local.set. The decoder keeps the body FLAT; here `_structure` parses it into a nested
+block tree and `_exec_seq` / `_exec_block` evaluate it over a value stack + a label stack. `br l`
+targets the l-th enclosing label (0 = innermost): a block/if target transfers PAST its `end`, a
+loop target to the loop HEADER (re-entry); `return` escapes all blocks. Integer opcode semantics
+are unchanged from M1. Any opcode outside the decoded scope cannot appear (the decoder rejects it).
 """
 from __future__ import annotations
 
 from . import values as V
-from .decoder import Module, Func, Instr, Unsupported
+from .decoder import Module, Instr, Unsupported
 
 # opcodes whose result is an i32 boolean (0/1) regardless of operand width
 _CMP = {"eq", "ne", "lt_s", "lt_u", "gt_s", "gt_u", "le_s", "le_u", "ge_s", "ge_u"}
@@ -55,7 +56,12 @@ def invoke(module: Module, field_name: str, args: list[int]) -> list[int]:
     # locals = params (masked to declared width) ++ declared locals (zero-initialized)
     locals_: list[int] = [V.to_unsigned(_wbits(pt), a) for pt, a in zip(ftype.params, args)]
     locals_ += [0] * len(func.local_types)
-    stack = _run(func, locals_)
+    seq = _structure(func.body)          # flat body -> nested block tree (structured control flow)
+    stack: list[int] = []
+    try:
+        _exec_seq(seq, stack, locals_, [])
+    except _Return:
+        pass
     nres = len(ftype.results)
     if len(stack) < nres:
         raise Trap("stack underflow producing results")  # structurally impossible for valid modules
@@ -66,35 +72,177 @@ def _wbits(valtype: str) -> int:
     return 32 if valtype == "i32" else 64
 
 
-def _run(func: Func, locals_: list[int]) -> list[int]:
-    stack: list[int] = []
-    push, pop = stack.append, stack.pop
-    for ins in func.body:
-        op = ins.op
-        if op == "end" or op == "return":
-            break
-        elif op == "local.get":
-            push(locals_[ins.imm])
-        elif op == "i32.const":
-            push(ins.imm & V.MASK32)
-        elif op == "i64.const":
-            push(ins.imm & V.MASK64)
+# ---- Structured control flow (M2). Parse the flat instruction stream into a nested block tree,
+# then evaluate recursively with a value stack + a label stack. `br l` targets the l-th enclosing
+# label (0 = INNERMOST): for a block/if, transfer PAST its `end`; for a loop, transfer to the loop
+# HEADER (re-entry). Integer ops below are byte-for-byte the M1 semantics. ----
+
+class _Block:
+    """A structured block parsed from the flat body. kind in {block, loop, if}; `results` are the
+    block-type result value-types (0 or 1 in M2 scope); for `if`, `else_seq` is the else-branch
+    (None when the source had no `else`)."""
+    __slots__ = ("kind", "results", "then_seq", "else_seq")
+
+    def __init__(self, kind: str, results: list[str], then_seq: list, else_seq):
+        self.kind = kind
+        self.results = results
+        self.then_seq = then_seq
+        self.else_seq = else_seq
+
+
+class _Label:
+    """An active control label. `branch_arity` = how many operand values a `br` to this label
+    carries: the block/if RESULT arity, or the loop PARAM arity (0 in M2 — MVP loops take no
+    params). `base` = the value-stack height at block entry."""
+    __slots__ = ("kind", "branch_arity", "base")
+
+    def __init__(self, kind: str, branch_arity: int, base: int):
+        self.kind = kind
+        self.branch_arity = branch_arity
+        self.base = base
+
+
+class _Branch(Exception):
+    """Unwind signal for br / br_if / br_table. `depth` = label levels still to unwind."""
+    def __init__(self, depth: int):
+        super().__init__(depth)
+        self.depth = depth
+
+
+class _Return(Exception):
+    """Unwind signal for the `return` opcode (escape all enclosing blocks)."""
+
+
+def _structure(body: list[Instr]) -> list:
+    """Flat instruction list (with block/loop/if/else/end tokens) -> nested sequence of plain Instr
+    and _Block nodes. The function body's terminating `end` closes the top sequence."""
+    seq, i = _parse_seq(body, 0)
+    if i != len(body):
+        raise Unsupported(f"trailing instructions after function body end ({i}/{len(body)})")
+    return seq
+
+
+def _parse_seq(body: list[Instr], i: int) -> tuple[list, int]:
+    """Parse instructions into a sequence until the matching `end` (consumed) or an `else` (left for
+    the enclosing `if`). Nested block/loop/if recurse, so each `end` pairs with its own opener and
+    only the function's terminal `end` closes the top sequence."""
+    seq: list = []
+    n = len(body)
+    while i < n:
+        op = body[i].op
+        if op == "end":
+            return seq, i + 1
+        if op == "else":
+            return seq, i                        # not consumed; the enclosing `if` handles it
+        if op in ("block", "loop", "if"):
+            blk, i = _parse_block(body, i)
+            seq.append(blk)
         else:
-            kind, _, rest = op.partition(".")     # "i32", ".", "add"
-            bits = 32 if kind == "i32" else 64
-            if rest in _BINOP:
-                b = pop(); a = pop()
-                push(_binop(bits, rest, a, b))
-            elif rest in _CMP:
-                b = pop(); a = pop()
-                push(_compare(bits, rest, a, b))
-            elif rest == "eqz":
-                push(1 if (pop() & V.mask(bits)) == 0 else 0)
-            elif rest in _UNOP:
-                push(_unop(bits, rest, pop()))
-            else:
-                push(_convert(op, pop()))
-    return stack
+            seq.append(body[i])
+            i += 1
+    raise Unsupported("unterminated block or function body (missing end)")  # unreachable: body ends in `end`
+
+
+def _parse_block(body: list[Instr], i: int) -> tuple[_Block, int]:
+    opener = body[i]
+    kind = opener.op
+    then_seq, i = _parse_seq(body, i + 1)         # stops after `end`, or at `else`
+    else_seq = None
+    if kind == "if" and i < len(body) and body[i].op == "else":
+        else_seq, i = _parse_seq(body, i + 1)     # consume `else`, parse to the block's `end`
+    return _Block(kind, opener.bt or [], then_seq, else_seq), i
+
+
+def _exec_seq(seq: list, stack: list[int], locals_: list[int], labels: list) -> None:
+    for item in seq:
+        if type(item) is _Block:
+            _exec_block(item, stack, locals_, labels)
+        else:
+            _exec_instr(item, stack, locals_, labels)
+
+
+def _exec_block(blk: _Block, stack: list[int], locals_: list[int], labels: list) -> None:
+    if blk.kind == "if":
+        cond = stack.pop() & V.MASK32
+        base = len(stack)
+        chosen = blk.then_seq if cond != 0 else (blk.else_seq or [])
+        try:                                                 # `if` branches like a block (to end)
+            _exec_seq(chosen, stack, locals_, labels + [_Label("block", len(blk.results), base)])
+        except _Branch as b:
+            if b.depth:
+                raise _Branch(b.depth - 1)
+        return
+    if blk.kind == "loop":
+        base = len(stack)
+        label = _Label("loop", 0, base)                      # br to a loop carries 0 params, re-enters
+        while True:
+            try:
+                _exec_seq(blk.then_seq, stack, locals_, labels + [label])
+                return                                       # normal completion exits the loop
+            except _Branch as b:
+                if b.depth:
+                    raise _Branch(b.depth - 1)
+                # depth 0 -> branch to loop header: _do_br already reset the stack to base; re-enter
+    else:  # block
+        base = len(stack)
+        try:
+            _exec_seq(blk.then_seq, stack, locals_, labels + [_Label("block", len(blk.results), base)])
+        except _Branch as b:
+            if b.depth:
+                raise _Branch(b.depth - 1)
+
+
+def _do_br(depth: int, stack: list[int], labels: list) -> None:
+    """Branch `depth` label levels out. Carry the target label's branch_arity operand values,
+    unwind the value stack to the target's base, push the carried values, then raise _Branch."""
+    tgt = labels[len(labels) - 1 - depth]
+    n = tgt.branch_arity
+    vals = stack[len(stack) - n:] if n else []
+    del stack[tgt.base:]
+    stack.extend(vals)
+    raise _Branch(depth)
+
+
+def _exec_instr(ins: Instr, stack: list[int], locals_: list[int], labels: list) -> None:
+    op = ins.op
+    push, pop = stack.append, stack.pop
+    if op == "nop":
+        return
+    if op == "drop":
+        pop(); return
+    if op == "local.get":
+        push(locals_[ins.imm]); return
+    if op == "local.set":
+        locals_[ins.imm] = pop(); return
+    if op == "i32.const":
+        push(ins.imm & V.MASK32); return
+    if op == "i64.const":
+        push(ins.imm & V.MASK64); return
+    if op == "return":
+        raise _Return()
+    if op == "br":
+        _do_br(ins.imm, stack, labels); return
+    if op == "br_if":
+        if (pop() & V.MASK32) != 0:
+            _do_br(ins.imm, stack, labels)
+        return
+    if op == "br_table":
+        idx = pop() & V.MASK32                               # index is i32, interpreted unsigned
+        tgt = ins.targets[idx] if idx < len(ins.targets) else ins.default
+        _do_br(tgt, stack, labels); return
+    # integer numeric ops — identical semantics to M1
+    kind, _, rest = op.partition(".")
+    bits = 32 if kind == "i32" else 64
+    if rest in _BINOP:
+        b = pop(); a = pop(); push(_binop(bits, rest, a, b))
+    elif rest in _CMP:
+        b = pop(); a = pop(); push(_compare(bits, rest, a, b))
+    elif rest == "eqz":
+        push(1 if (pop() & V.mask(bits)) == 0 else 0)
+    elif rest in _UNOP:
+        push(_unop(bits, rest, pop()))
+    else:
+        push(_convert(op, pop()))
 
 
 def _binop(bits: int, op: str, a: int, b: int) -> int:

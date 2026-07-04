@@ -25,7 +25,7 @@ Requires wabt's wasm2wat (same pinned toolchain as convert.py).
 Reproduce: python scripts/convert.py && WASM2WAT=vendor/wabt/bin/wasm2wat python tools/body_purity_check.py
 Exit 0 = clean (no f32/f64 in any instantiated module); 1 = float found or evidence/tool missing.
 """
-import json, os, re, shutil, subprocess, sys
+import argparse, json, os, re, shutil, subprocess, sys
 
 MANIFEST  = "manifest_m0.json"
 CONVERTED = "build/converted"
@@ -54,10 +54,14 @@ def float_lines(wasm_path):
 
 
 def main():
+    ap = argparse.ArgumentParser(description="Gate: instantiated target modules contain no f32/f64.")
+    ap.add_argument("--manifest", default=MANIFEST,
+                    help="manifest JSON whose targets to check (default: manifest_m0.json)")
+    args = ap.parse_args()
     if not (shutil.which(WASM2WAT) or os.path.exists(WASM2WAT)):
         print(f"FAIL: {WASM2WAT} not found (need pinned wabt).")
         return 1
-    m = json.load(open(MANIFEST, encoding="utf-8"))
+    m = json.load(open(args.manifest, encoding="utf-8"))
     targets = [t["name"] for t in m["targets"]]
     overall_clean = True
     print(f"{'file':18} {'modules':>7} {'float_lines':>11}  status")
