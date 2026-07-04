@@ -5,3 +5,7 @@ build/
 # Python
 __pycache__/
 *.pyc
+
+# Local agent operating rules — kept local, not part of the tracked repo.
+/CLAUDE.md
+/AGENTS.md
