@@ -51,9 +51,13 @@ def classify(json_path: Path) -> dict:
     # during classification) and split cleanly into supported+unsupported.
     assert total == len(commands), f"dropped a command while classifying {json_path.name}"
     assert supported + unsupported == total, "command accounting mismatch"
+    try:
+        disp = str(json_path.resolve().relative_to(ROOT))  # tidy repo-relative path when possible
+    except ValueError:
+        disp = str(json_path)                              # --json path outside the repo: show as-is
     return {
         "source_filename": data.get("source_filename"),
-        "json": str(json_path.relative_to(ROOT)),
+        "json": disp,
         "total": total,
         "by_type": dict(sorted(by_type.items())),
         "unknown_types": dict(sorted(unknown.items())),
@@ -77,7 +81,7 @@ def iter_json_paths(args) -> tuple[list[Path], bool]:
     complete.
     """
     if args.json:
-        return [Path(p) for p in args.json], False
+        return [Path(p).resolve() for p in args.json], False
     if CONVERSION_REPORT.exists():
         rep = json.loads(CONVERSION_REPORT.read_text(encoding="utf-8"))
         if not rep.get("all_ok", False):

@@ -41,13 +41,28 @@ def download(url: str, dest: Path) -> None:
         shutil.copyfileobj(r, f)
 
 
+def _within(base: Path, target: Path) -> bool:
+    base = base.resolve()
+    target = target.resolve()
+    return base == target or base in target.parents
+
+
 def _safe_extract(tar_path: Path, out_dir: Path) -> None:
+    out_dir = Path(out_dir)
     with tarfile.open(tar_path) as tar:
         # filter='data' (py>=3.12) blocks path traversal / unsafe members.
         try:
             tar.extractall(out_dir, filter="data")
+            return
         except TypeError:
-            tar.extractall(out_dir)
+            pass  # older Python: validate members ourselves rather than extract unsafely
+        base = out_dir.resolve()
+        for m in tar.getmembers():
+            if not _within(base, base / m.name):
+                raise SystemExit(f"unsafe tar member (path traversal): {m.name}")
+            if (m.issym() or m.islnk()) and not _within(base, (base / m.name).parent / m.linkname):
+                raise SystemExit(f"unsafe tar link escaping extract dir: {m.name} -> {m.linkname}")
+        tar.extractall(out_dir)
 
 
 def extract_strip_top(tar_path: Path, final_dir: Path) -> str:

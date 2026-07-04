@@ -33,8 +33,10 @@ jobs:
         with:
           ocaml-compiler: "5.2"
 
-      - name: Install interpreter build deps (dune, menhir)
-        run: opam install --yes dune menhir
+      - name: Install interpreter build deps (pinned for reproducibility)
+        # Pin exact versions verified locally, so a future opam release can't change the
+        # build under a fixed manifest. (Interpreter needs dune>=2.9 and menhir>=20220210.)
+        run: opam install --yes dune.3.24.0 menhir.20260209
 
       - name: Fetch pinned oracle (spec@SHA) + toolchain (WABT@release, sha256-verified)
         run: python scripts/fetch_oracle.py
