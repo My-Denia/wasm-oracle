@@ -3,9 +3,10 @@
 Executes a decoded Module's function bodies over an i32/i64 value stack, with EXACT integer
 semantics per the WebAssembly spec (stable, not time-sensitive): wrapping arithmetic mod 2**N;
 shift counts masked mod 32/64; arithmetic vs logical shr; rotl/rotr; clz/ctz/popcnt; rem_s sign
-following the dividend; eqz and comparisons yielding i32 0/1; wrap/extend ops; and the four
-integer traps (div/rem by zero, and div_s/rem_s overflow at INT_MIN / -1 — note rem_s does NOT
-trap on overflow, it yields 0).
+following the dividend; eqz and comparisons yielding i32 0/1; wrap/extend ops; and the integer
+traps. There are exactly two trap texts: "integer divide by zero" (from div_s / div_u / rem_s /
+rem_u by zero) and "integer overflow" (from signed division div_s of INT_MIN by -1). Signed
+remainder rem_s of INT_MIN by -1 does NOT trap — it yields 0.
 
 M1 scope is a straight-line integer core: the enumerated opcode set contains NO structured
 control flow (block/loop/if/br*), so a function body is executed as a linear instruction

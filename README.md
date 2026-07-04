@@ -82,8 +82,10 @@ M2–M5). The decoder and interpreter implement exactly that enumerated scope; a
 reported `UNSUPPORTED`, never mis-executed.
 
 Result over the 4 targets: every in-scope value assertion matches the oracle — **PASS=877, FAIL=0**
-(843 `assert_return` + 34 `assert_trap`, including the four integer traps: div/rem by zero and
-`div_s`/`rem_s` overflow at INT_MIN/-1) — with **UNSUPPORTED=136** (the `assert_invalid` /
+(843 `assert_return` + 34 `assert_trap`, covering the two integer trap texts — `integer divide by
+zero` from `div_s`/`div_u`/`rem_s`/`rem_u` by zero, and `integer overflow` from signed division
+`div_s` of INT_MIN by -1; signed remainder `rem_s` of INT_MIN by -1 does not trap, it yields 0)
+— with **UNSUPPORTED=136** (the `assert_invalid` /
 `assert_malformed` validation commands, reported with a count, not skipped) and 22 modules
 instantiated. `modules + PASS + FAIL + UNSUPPORTED == 1035`: nothing is dropped, turning M0's
 all-`UNSUPPORTED` inventory into an honest supported/unsupported split. A comparator positive control

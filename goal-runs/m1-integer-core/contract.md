@@ -40,8 +40,11 @@ Per-command classification (tallied, none dropped):
 - FAIL — mismatch. Any FAIL fails the gate.
 - UNSUPPORTED — command/opcode outside M1 scope (e.g. assert_invalid, or an opcode not in the
   enumerated set). Reported with a count, never skipped.
-- assert_trap — execution must trap where a trap is expected: integer traps in scope are
-  div_s/div_u/rem_s/rem_u by zero, and i32/i64.div_s/rem_s overflow at INT_MIN / -1.
+- assert_trap — execution must trap where a trap is expected. In-scope integer traps have two
+  texts: "integer divide by zero" (div_s/div_u/rem_s/rem_u by zero) and "integer overflow"
+  (signed division div_s of INT_MIN by -1). Signed remainder rem_s of INT_MIN by -1 does NOT
+  trap; it yields 0. [Corrected from the original contract's "div_s/rem_s overflow at INT_MIN/-1",
+  which wrongly implied rem_s overflow-traps.]
 
 Integer semantics that MUST be exact: wrapping arithmetic mod 2^N; shift counts masked mod
 32/64; arithmetic vs logical shift for shr_s/shr_u; rotl/rotr; clz/ctz/popcnt; sign of rem_s

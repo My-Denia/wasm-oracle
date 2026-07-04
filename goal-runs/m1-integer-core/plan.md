@@ -55,7 +55,8 @@ plan deliberately leaves the opcode list unbound until Milestone 1 completes, th
   set only. Any opcode outside the set ⇒ UNSUPPORTED (not mis-executed). Exact semantics:
   wrapping arith mod 2^N; shift counts mod 32/64; arithmetic vs logical shr; rotl/rotr;
   clz/ctz/popcnt; rem_s sign follows dividend; comparisons/eqz ⇒ i32 0/1; wrap/extend ops;
-  div/rem traps (÷0, INT_MIN/-1 overflow for signed div/rem).
+  div/rem traps: div_s/div_u/rem_s/rem_u trap on ÷0 ("integer divide by zero"); div_s of
+  INT_MIN/-1 traps ("integer overflow"); rem_s of INT_MIN/-1 does NOT trap, it yields 0.
 - **Verify (binary):** targeted unit tests for each tricky semantic (edge values, trap cases)
   pass; determinism holds.
 
