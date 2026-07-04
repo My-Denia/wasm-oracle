@@ -1,0 +1,101 @@
+# M0 Oracle Harness CI (Linux).
+# Fetches + builds the PINNED external oracle, converts the frozen manifest, runs the
+# runner skeleton, and asserts the M0 conditions. This workflow deliberately does NOT
+# execute interpreter conformance and makes NO conformance claim: at M0 the runner
+# supports nothing and every command is UNSUPPORTED by design.
+name: M0 Oracle Harness
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m0-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  oracle-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up OCaml (for the reference interpreter — the semantic oracle)
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.2"
+
+      - name: Install interpreter build deps (pinned for reproducibility)
+        # Pin exact versions verified locally, so a future opam release can't change the
+        # build under a fixed manifest. (Interpreter needs dune>=2.9 and menhir>=20220210.)
+        run: opam install --yes dune.3.24.0 menhir.20260209
+
+      - name: Fetch pinned oracle (spec@SHA) + toolchain (WABT@release, sha256-verified)
+        run: python scripts/fetch_oracle.py
+
+      - name: Build reference interpreter and run one .wast (proves the oracle builds + runs)
+        run: |
+          cd vendor/spec/interpreter
+          opam exec -- make
+          test -x ./wasm
+          ./wasm ../test/core/i32.wast
+          echo "reference interpreter built and ran i32.wast (exit $?)"
+
+      - name: Convert frozen manifest via WABT wast2json (DEFAULT features = scope guardrail)
+        run: python scripts/convert.py
+
+      - name: Run the M0 runner skeleton (reports command inventory; executes nothing)
+        run: python scripts/run_skeleton.py
+
+      - name: Assert M0 conditions (NO conformance claimed)
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          mani = json.load(open("manifest_m0.json"))
+          conv = json.load(open("build/report/conversion_report.json"))
+          run  = json.load(open("build/report/run_summary.json"))
+
+          # 1. conversion succeeded for EVERY manifest target (count derived from the manifest,
+          #    not hardcoded, so the assertion tracks the frozen manifest).
+          n_targets = len(mani["targets"])
+          assert conv["all_ok"] is True, "conversion not all-ok"
+          assert conv["file_count"] == n_targets, f"expected {n_targets} targets, got {conv['file_count']}"
+          for f in conv["files"]:
+              assert f["ok"] and f["total_commands"] > 0, f"bad target: {f['name']}"
+
+          # 2. runner read every JSON; 3. unsupported recorded (nonzero — fine at M0); supported==0
+          t = run["totals"]
+          assert run["semantics_implemented"] is False
+          assert run["conformance_claimed"] is False
+          assert t["files"] == conv["file_count"], "runner did not read every JSON"
+          assert t["supported"] == 0, "M0 must support nothing"
+          assert t["unsupported"] == t["total_commands"], "accounting: unsupported must equal total"
+          assert t["total_commands"] > 0, "manifest is non-empty; expected >0 commands"
+
+          # 4. artifact paths stable
+          for p in ["build/fetch_provenance.json",
+                    "build/report/conversion_report.json",
+                    "build/report/run_summary.json"]:
+              assert pathlib.Path(p).exists(), f"missing stable artifact: {p}"
+
+          print(f"M0 CI assertions passed: conversion all-ok ({conv['file_count']} files), "
+                f"JSON all-read, supported=0, unsupported={t['unsupported']} (total), paths stable.")
+          print("NO interpreter semantics implemented. NO conformance claimed.")
+          PY
+
+      - name: Upload M0 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m0-report
+          path: |
+            build/report/*.json
+            build/fetch_provenance.json
