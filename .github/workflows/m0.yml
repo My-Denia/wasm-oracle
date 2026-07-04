@@ -55,10 +55,10 @@ jobs:
       - name: Purity gate — assert-operand layer (no f32/f64 in target assertions)
         run: python tools/assert_operand_purity.py
 
-      - name: Purity gate — body layer (no f32/f64 opcodes in instantiated target modules)
+      - name: Purity gate — body layer (no f32/f64 anywhere in instantiated target modules)
         run: python tools/body_purity_check.py
         env:
-          WASM_OBJDUMP: vendor/wabt/bin/wasm-objdump
+          WASM2WAT: vendor/wabt/bin/wasm2wat
 
       - name: Run the M0 runner skeleton (reports command inventory; executes nothing)
         run: python scripts/run_skeleton.py

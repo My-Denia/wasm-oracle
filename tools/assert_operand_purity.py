@@ -46,12 +46,14 @@ for name in targets:
             for t in operand_types(cmd):
                 c[t if t in ("i32", "i64", "f32", "f64") else "other"] += 1
     print(f"{name:18} {n:7d} {c['i32']:6d} {c['i64']:6d} {c['f32']:6d} {c['f64']:6d} {c['other']:6d}")
-    if c["f32"] or c["f64"]:
+    # The gate asserts operands are i32/i64 ONLY, so ANY non-integer operand fails --
+    # not just f32/f64, but also v128/reference/any newly emitted type (the 'other' bucket).
+    if c["f32"] or c["f64"] or c["other"]:
         all_clean = False
-        print(f"  >>> FAIL: {name} has f32={c['f32']} f64={c['f64']} in assert operands")
+        print(f"  >>> FAIL: {name} has non-integer operands (f32={c['f32']} f64={c['f64']} other={c['other']})")
 
 print()
 print("VERDICT:",
-      "ALL targets integer-clean (f32==f64==0 in assert operands)" if all_clean
-      else "FLOAT OPERANDS PRESENT or evidence missing -- see above")
+      "ALL targets integer-clean (operands are i32/i64 only)" if all_clean
+      else "NON-INTEGER OPERANDS PRESENT or evidence missing -- see above")
 sys.exit(0 if all_clean else 1)
