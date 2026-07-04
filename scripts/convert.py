@@ -36,16 +36,18 @@ def find_wast2json() -> Path:
     return cand
 
 
-def convert_one(wast2json: Path, src: Path, out_dir: Path, stem: str) -> dict:
+def convert_one(wast2json: Path, flags: list, src: Path, out_dir: Path, stem: str) -> dict:
     if out_dir.exists():
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True)
     json_path = out_dir / f"{stem}.json"
-    # DEFAULT features on purpose: no --enable-* flags (scope guardrail).
+    # `flags` are --disable-* for the post-MVP extensions M0 excludes (from the manifest):
+    # a real guardrail that makes wast2json REJECT out-of-scope proposal syntax, rather than
+    # relying on defaults (which enable those standardized extensions).
     # Decode stderr as UTF-8 explicitly (not the process locale) so a diagnostic with
     # non-locale bytes can't mojibake or crash convert_one on a non-UTF8 machine.
     proc = subprocess.run(
-        [str(wast2json), str(src), "-o", str(json_path)],
+        [str(wast2json), *flags, str(src), "-o", str(json_path)],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     rec: dict = {"name": src.name, "returncode": proc.returncode}
@@ -77,8 +79,11 @@ def main() -> int:
     if not core.is_dir():
         raise SystemExit(f"spec test/core not found at {core}. Run scripts/fetch_oracle.py first.")
 
+    disable = manifest["conversion"].get("disable_features", [])
+    flags = [f"--disable-{x}" for x in disable]
     REPORT.mkdir(parents=True, exist_ok=True)
-    log(f"wast2json: {wast2json}  (features: DEFAULT / integer-core guardrail)")
+    log(f"wast2json: {wast2json}")
+    log(f"guardrail flags (reject out-of-scope extensions): {' '.join(flags) or '(none)'}")
     log(f"spec test/core: {core}")
 
     files, grand = [], Counter()
@@ -96,7 +101,7 @@ def main() -> int:
                           "stderr": [f"source .wast missing: {src}"]})
             log(f"  FAIL   {src.name}: source missing")
             continue
-        rec = convert_one(wast2json, src, CONVERTED / stem, stem)
+        rec = convert_one(wast2json, flags, src, CONVERTED / stem, stem)
         files.append(rec)
         if rec["ok"]:
             grand.update(rec["by_type"])
@@ -110,7 +115,7 @@ def main() -> int:
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "tool": "wast2json",
         "wast2json_path": str(wast2json),
-        "features": manifest["conversion"]["features"],
+        "guardrail_flags": flags,
         "spec_commit": manifest["spec"]["commit"],
         "all_ok": all_ok,
         "file_count": len(files),

@@ -57,14 +57,19 @@ is **not** the semantic oracle.
 `scripts/fetch_oracle.py` downloads this asset and **verifies the sha256 before extracting**
 (mismatch = hard failure). The `wast2json` binary lands at `vendor/wabt/bin/wast2json`.
 
-### Convert (default features — scope guardrail)
+### Convert (post-MVP extensions disabled — scope guardrail)
 
 ```sh
-vendor/wabt/bin/wast2json vendor/spec/test/core/i32.wast -o build/converted/i32/i32.json
+vendor/wabt/bin/wast2json --disable-simd --disable-bulk-memory --disable-reference-types \
+    vendor/spec/test/core/i32.wast -o build/converted/i32/i32.json
 ```
 
-No `--enable-*` proposal flags are passed. The default (integer-core) feature set is a scope
-guardrail: it rejects out-of-scope proposal syntax rather than silently converting it.
+The `--disable-*` flags (from `manifest_m0.json` → `conversion.disable_features`) are a real
+guardrail: they make `wast2json` **reject** out-of-scope extension syntax rather than silently
+accepting it. Note that WABT's *defaults* are NOT an integer guardrail — SIMD / bulk-memory /
+reference-types are standardized and enabled unless disabled. And `f32`/`f64` are MVP-core (no flag
+disables them), so integer-value purity is enforced by **manifest curation** (`const`, `local_get`,
+`local_set`, `local_tee` are excluded — see `manifest_m0.json`), not by flags.
 
 ## 3. One-shot reproduction
 

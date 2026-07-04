@@ -14,7 +14,7 @@ verification scaffold:
 
 - an **external oracle** fetch/build chain (WebAssembly/spec reference interpreter, pinned),
 - a **test-conversion chain** (WABT `wast2json`, pinned, toolchain-only),
-- a **frozen test manifest** (`manifest_m0.json`) of integer-core `.wast` files, and
+- a **frozen test manifest** (`manifest_m0.json`) of integer-value-clean `.wast` files, and
 - a **runner skeleton** that reads the converted JSON and reports the command inventory.
 
 What M0 may claim, and nothing more: *the oracle harness is reproducible, the test manifest is
@@ -26,7 +26,7 @@ See [`ORACLE.md`](ORACLE.md) for the pinned SHAs and exact reproduction commands
 ## Layout
 
 ```
-manifest_m0.json          frozen: spec pin, WABT pin, 7 integer-core targets, 1 reasoned exclusion
+manifest_m0.json          frozen: spec pin, WABT pin, 4 integer-value targets, 4 reasoned exclusions
 ORACLE.md                 pinned SHAs + build commands + exact "run a .wast" command
 scripts/fetch_oracle.py   fetch spec@SHA (oracle) + WABT@release (toolchain), sha256-verified
 scripts/convert.py        wast2json over the manifest -> JSON + .wasm, per-file command counts
@@ -51,15 +51,22 @@ NO interpreter/execution semantics · NO `.wast` parser (WABT converts) · NO va
 NO floating point · NO extensions (SIMD, GC, threads, memory64, multi-memory, exceptions,
 relaxed-simd, bulk-memory) · NO performance/JIT/AOT · NO authoring of expected outputs.
 
-`wast2json` is run with **default features** (no `--enable-*` flags): the default feature set is a
-scope guardrail that *rejects* out-of-scope proposal syntax rather than silently converting it.
-(That is exactly why `local_tee.wast` is an explicit, reasoned exclusion at the pinned commit — see
-`manifest_m0.json` → `excluded`.)
+`wast2json` is run with post-MVP extensions **disabled** (`--disable-simd --disable-bulk-memory
+--disable-reference-types`, from `manifest_m0.json` → `conversion.disable_features`): a real guardrail
+that makes conversion *reject* out-of-scope proposal syntax rather than silently accepting it. Two
+honesty notes: WABT's *defaults* are **not** an integer guardrail — those extensions are standardized
+and on unless disabled (only non-standardized proposals like typed function references are off by
+default, which is why `local_tee.wast` fails without `--enable-function-references`). And `f32`/`f64`
+are MVP-core and cannot be disabled by any flag, so **integer-value purity is enforced by manifest
+curation, not flags**: `const`, `local_get`, `local_set` (float-bearing) and `local_tee` (function
+references) are explicit, reasoned exclusions — see `manifest_m0.json` → `excluded`.
 
 ## Next: M1 (integer-core execution)
 
-M1 begins implementing interpreter semantics for the integer core. It will be forced to pass the
-frozen M0 manifest through the external oracle: for every `assert_return` / `assert_trap` /
-`assert_invalid` / `assert_malformed` command in the converted JSON of the 7 pinned files, the
-interpreter's result must match the official reference interpreter's — turning today's all-`UNSUPPORTED`
-inventory into a supported/pass count with **zero** authored expected values.
+M1 begins implementing interpreter semantics for the integer core. It will be forced to work against
+the frozen M0 manifest — the converted JSON of the 4 pinned files (**1035 commands**) — through the
+external oracle: for every **execution** command (`assert_return` / `assert_trap`, plus module
+instantiation and `action` invocations), the interpreter's result must match the official reference
+interpreter's, with **zero** authored expected values. Validation commands (`assert_invalid` /
+`assert_malformed`) stay `UNSUPPORTED` and reported (not skipped) until a later validation milestone —
+turning today's all-`UNSUPPORTED` inventory into an honest supported/unsupported split.

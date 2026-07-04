@@ -57,12 +57,15 @@ jobs:
         run: |
           python - <<'PY'
           import json, pathlib
+          mani = json.load(open("manifest_m0.json"))
           conv = json.load(open("build/report/conversion_report.json"))
           run  = json.load(open("build/report/run_summary.json"))
 
-          # 1. conversion succeeded for EVERY manifest file
+          # 1. conversion succeeded for EVERY manifest target (count derived from the manifest,
+          #    not hardcoded, so the assertion tracks the frozen manifest).
+          n_targets = len(mani["targets"])
           assert conv["all_ok"] is True, "conversion not all-ok"
-          assert conv["file_count"] == 7, f"expected 7 targets, got {conv['file_count']}"
+          assert conv["file_count"] == n_targets, f"expected {n_targets} targets, got {conv['file_count']}"
           for f in conv["files"]:
               assert f["ok"] and f["total_commands"] > 0, f"bad target: {f['name']}"
 
@@ -72,7 +75,8 @@ jobs:
           assert run["conformance_claimed"] is False
           assert t["files"] == conv["file_count"], "runner did not read every JSON"
           assert t["supported"] == 0, "M0 must support nothing"
-          assert t["unsupported"] == t["total_commands"] > 0, "unsupported must equal total (>0)"
+          assert t["unsupported"] == t["total_commands"], "accounting: unsupported must equal total"
+          assert t["total_commands"] > 0, "manifest is non-empty; expected >0 commands"
 
           # 4. artifact paths stable
           for p in ["build/fetch_provenance.json",
@@ -90,4 +94,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: m0-report
-          path: build/report/*.json
+          path: |
+            build/report/*.json
+            build/fetch_provenance.json
