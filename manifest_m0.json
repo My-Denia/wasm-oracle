@@ -1,0 +1,43 @@
+{
+  "milestone": "M0",
+  "statement": "Oracle harness only. NO interpreter semantics implemented. NO conformance claimed.",
+  "spec": {
+    "repo": "https://github.com/WebAssembly/spec",
+    "commit": "82cd4f9555dbf80b20611d8d3a2c6e6f444b228c",
+    "commit_date": "2026-06-27",
+    "tarball": "https://github.com/WebAssembly/spec/archive/82cd4f9555dbf80b20611d8d3a2c6e6f444b228c.tar.gz",
+    "test_core_dir": "test/core",
+    "interpreter_dir": "interpreter",
+    "role": "SEMANTIC ORACLE (authoritative). The official reference interpreter and the official test/core .wast files are the external oracle; we author no expected outputs."
+  },
+  "wabt": {
+    "repo": "https://github.com/WebAssembly/wabt",
+    "role": "TOOLCHAIN ONLY (format conversion via wast2json). NOT the semantic oracle.",
+    "tag": "1.0.41",
+    "commit": "03a00a1334e6121fb0cce4fccbd6bb109b68acaa",
+    "linux_x64_asset": "wabt-1.0.41-linux-x64.tar.gz",
+    "linux_x64_url": "https://github.com/WebAssembly/wabt/releases/download/1.0.41/wabt-1.0.41-linux-x64.tar.gz",
+    "linux_x64_sha256": "83f8122e924745fcd70636e3594bc01c4c47f2d4c8f3c63b5d70d3f83a482677"
+  },
+  "conversion": {
+    "tool": "wast2json",
+    "features": "DEFAULT - no --enable-* proposal flags. Integer-core only. Default features act as a SCOPE GUARDRAIL: they reject out-of-scope proposal syntax (e.g. typed function references) rather than silently converting it."
+  },
+  "targets": [
+    { "name": "const.wast",        "upstream_path": "test/core/const.wast" },
+    { "name": "i32.wast",          "upstream_path": "test/core/i32.wast" },
+    { "name": "i64.wast",          "upstream_path": "test/core/i64.wast" },
+    { "name": "local_get.wast",    "upstream_path": "test/core/local_get.wast" },
+    { "name": "local_set.wast",    "upstream_path": "test/core/local_set.wast" },
+    { "name": "int_exprs.wast",    "upstream_path": "test/core/int_exprs.wast" },
+    { "name": "int_literals.wast", "upstream_path": "test/core/int_literals.wast" }
+  ],
+  "excluded": [
+    {
+      "name": "local_tee.wast",
+      "upstream_path": "test/core/local_tee.wast",
+      "present_at_commit": true,
+      "reason": "At pinned spec commit 82cd4f9, local_tee.wast (lines 615/618) uses typed function-references syntax `(func $f (param (ref null $t)))` / `(ref.null $t)`. wast2json under DEFAULT (integer-core) features rejects it; it converts only with --enable-function-references, a reference-types proposal outside M0 integer-core scope. Excluded EXPLICITLY (not silently skipped) per the no-silent-skipping invariant. Revisit when reference types enter scope in a later milestone."
+    }
+  ]
+}

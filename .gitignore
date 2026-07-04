@@ -1,0 +1,7 @@
+# Generated / fetched artifacts — regenerable from pinned sources, never committed.
+vendor/
+build/
+
+# Python
+__pycache__/
+*.pyc

@@ -1,0 +1,2 @@
+# Normalize all text to LF in the repo (authored on Windows, runs on Linux CI).
+* text=auto eol=lf
