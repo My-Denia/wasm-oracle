@@ -29,11 +29,29 @@ FLOAT_VALTYPES = {0x7D: "f32", 0x7C: "f64"}
 
 # Immediate encodings.
 IMM_NONE, IMM_S32, IMM_S64, IMM_U32 = "none", "s32", "s64", "u32"
+# M2 structured-control-flow immediates: a block signature (block/loop/if) and a br_table's
+# target vector + default label.
+IMM_BLOCKTYPE, IMM_BRTABLE = "blocktype", "brtable"
 
-# opcode byte -> (mnemonic, immediate-kind), for EXACTLY the 71 enumerated opcodes plus the
-# two structural opcodes end/return. Byte values are the stable WASM spec numeric opcodes;
-# the table is verified against wasm-objdump -d in tests/decoder_selftest.py.
+# opcode byte -> (mnemonic, immediate-kind), for the enumerated integer opcodes plus the M2
+# structured-control-flow set (nop/block/loop/if/else/br/br_if/br_table/drop) and local.set.
+# Byte values are the stable WASM spec numeric opcodes; the table is verified against
+# wasm-objdump -d in tests/decoder_selftest.py (M1 and M2 modules).
 OPCODES: dict[int, tuple[str, str]] = {
+    # M2 structured control flow + parametric/local (data-derived from goal-runs/m2-control-flow/
+    # scope.txt: labels/switch use exactly these). local.set (0x21) is the M2-forced local op
+    # (M1 had local.get 0x20 only); local.tee 0x22 is absent from the M2 targets.
+    0x01: ("nop", IMM_NONE),
+    0x02: ("block", IMM_BLOCKTYPE),
+    0x03: ("loop", IMM_BLOCKTYPE),
+    0x04: ("if", IMM_BLOCKTYPE),
+    0x05: ("else", IMM_NONE),
+    0x0C: ("br", IMM_U32),
+    0x0D: ("br_if", IMM_U32),
+    0x0E: ("br_table", IMM_BRTABLE),
+    0x1A: ("drop", IMM_NONE),
+    0x21: ("local.set", IMM_U32),
+    # M1 integer core (unchanged)
     0x0B: ("end", IMM_NONE),
     0x0F: ("return", IMM_NONE),
     0x20: ("local.get", IMM_U32),
@@ -86,6 +104,9 @@ SECTION_NAMES = {SEC_TYPE: "Type", SEC_FUNCTION: "Function", SEC_EXPORT: "Export
 class Instr:
     op: str
     imm: int | None = None
+    bt: list[str] | None = None          # block/loop/if result value-types (block signature)
+    targets: list[int] | None = None     # br_table target label vector
+    default: int | None = None           # br_table default label
 
 
 @dataclass
@@ -160,6 +181,22 @@ def _valtype(b: int) -> str:
     raise Unsupported(f"unknown value type byte 0x{b:02x}")
 
 
+def _blocktype(r: _Reader) -> list[str]:
+    """Decode a block signature (block/loop/if) → its result value-types. The block type is a
+    SIGNED LEB128; M2 scope uses only the single-byte forms: 0x40 empty → [], 0x7F i32 → ['i32'],
+    0x7E i64 → ['i64']. Float block results (0x7D/0x7C) and any non-negative typeidx (multi-value)
+    are out of M2 scope → Unsupported. `_valtype` reads an UNSIGNED byte and would misread 0x40,
+    so block-type gets its own decoder (verified against wasm-objdump by the M2 decoder self-test)."""
+    b = r.byte()
+    if b == 0x40:
+        return []
+    if b in VALTYPES:
+        return [VALTYPES[b]]
+    if b in FLOAT_VALTYPES:
+        raise Unsupported(f"float block type {FLOAT_VALTYPES[b]} (out of M2 integer scope)")
+    raise Unsupported(f"multi-value/typeidx block type (first byte 0x{b:02x}, out of M2 scope)")
+
+
 def _decode_type_section(r: _Reader, m: Module) -> None:
     for _ in range(r.uleb()):
         form = r.byte()
@@ -186,14 +223,16 @@ def _decode_export_section(r: _Reader, m: Module) -> None:
 
 
 def _decode_instrs(r: _Reader, end: int) -> list[Instr]:
-    """Decode a flat instruction sequence up to byte offset `end` (the code entry boundary).
-    The final instruction is the body-terminating `end`. No nested blocks exist in M1 scope,
-    so a single linear pass is exhaustive."""
+    """Decode a flat instruction sequence up to byte offset `end` (the code-entry boundary), the
+    final one being the body-terminating `end`. Structured blocks (block/loop/if/else/end) are read
+    as FLAT tokens here: the linear read to `end` still consumes every nested opcode exactly once,
+    and the interpreter (machine.py) re-derives nesting from this flat stream. Keeping the body flat
+    also keeps tests/decoder_selftest.py's opcode-stream compare token-for-token with wasm-objdump."""
     body: list[Instr] = []
     while r.p < end:
         b = r.byte()
         if b not in OPCODES:
-            raise Unsupported(f"opcode 0x{b:02x} (not in enumerated M1 scope)")
+            raise Unsupported(f"opcode 0x{b:02x} (not in enumerated scope)")
         op, imm_kind = OPCODES[b]
         if imm_kind == IMM_NONE:
             body.append(Instr(op))
@@ -203,6 +242,12 @@ def _decode_instrs(r: _Reader, end: int) -> list[Instr]:
             body.append(Instr(op, r.sleb(32)))
         elif imm_kind == IMM_S64:
             body.append(Instr(op, r.sleb(64)))
+        elif imm_kind == IMM_BLOCKTYPE:
+            body.append(Instr(op, bt=_blocktype(r)))
+        elif imm_kind == IMM_BRTABLE:
+            n = r.uleb()
+            tgts = [r.uleb() for _ in range(n)]
+            body.append(Instr(op, targets=tgts, default=r.uleb()))
         else:                                   # unreachable
             raise DecodeError(f"bad immediate kind {imm_kind}")
     if r.p != end:

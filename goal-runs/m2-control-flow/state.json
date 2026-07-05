@@ -1,0 +1,63 @@
+{
+  "milestone": "M2",
+  "title": "Structured Control Flow",
+  "status": "completed-pending-owner-commit",
+  "baseline": {"branch": "main", "commit": "ca2abb1"},
+  "work_branch": "m2-control-flow (not yet created; owner-gated)",
+  "risk": "medium",
+  "audit_mode": "independent-subagents",
+  "committed": false,
+  "pushed": false,
+  "gates": {
+    "plan_audit": {
+      "mode": "independent-subagents",
+      "decision": "needs-replan -> replanned",
+      "note": "Auditor confirmed arithmetic (labels 29 / switch 28 / total 57) and scope method against pinned source; required 5 named checks folded into contract.md/plan.md: (1) br_table label-depth + zero-target case, (2) signed-LEB block-type own-decoder + standalone else/end tokens, (3) FAIL-CLOSED enumerate_m2_scope.py, (4) if-without-else + terminal-end structure-parse, (5) result-arity-on-branch distinct from depth. Auditor pre-cleared execution once folded.",
+      "conditionally_cleared": true
+    },
+    "execution_audit": {"mode": "independent-subagents", "decision": "pass",
+      "note": "8/8 criteria verified in fresh WSL processes; adversarially confirmed fail-closed gate (monkeypatched frozen set -> exit 1) and non-vacuous decoder selftest (corrupted br_table immediate -> desync FAIL); 6 protected M0/M1 files byte-identical; no issues."},
+    "step0_scope_gate": {"cmd": "tools/enumerate_m2_scope.py", "exit": 0, "fail_closed": true,
+      "note": "First run EXIT 1 caught local.set + local[N] artifacts; refined scope, then EXIT 0 IN SCOPE."},
+    "decoder_selftest_m2": {"cmd": "tests/decoder_selftest.py --manifest manifest_m2.json", "exit": 0, "modules_checked": 2},
+    "decoder_selftest_m1": {"cmd": "tests/decoder_selftest.py", "exit": 0, "modules_checked": 22, "unchanged": true},
+    "control_flow_tests": {"cmd": "tests/test_control_flow.py", "exit": 0, "tests": 19},
+    "semantics_tests_m1": {"cmd": "tests/test_semantics.py", "exit": 0, "tests": 17, "unchanged": true},
+    "positive_control_m2": {"cmd": "tests/positive_control_m2.py", "exit": 0},
+    "execution_gate_m2": {"cmd": "scripts/run_m2.py", "exit": 0},
+    "m2_purity": {"assert_operand_purity_m2": 0, "body_purity_check_m2": 0},
+    "m0_m1_not_regressed": {
+      "convert_noarg": "4/4 1035", "assert_operand_purity": 0, "body_purity_check": 0,
+      "run_skeleton_supported": 0, "enumerate_m1_scope_pin_diff": 0,
+      "decoder_selftest_noarg": 0, "test_semantics": 0, "positive_control": 0,
+      "run_m1": {"PASS": 877, "FAIL": 0, "UNSUPPORTED": 136}
+    }
+  },
+  "scope": {
+    "targets": ["labels.wast", "switch.wast"],
+    "sections": ["Type", "Function", "Export", "Code"],
+    "new_opcodes": ["nop", "block", "loop", "if", "else", "br", "br_if", "br_table", "drop", "local.set"],
+    "new_opcodes_note": "local.set (0x21) was data-forced: the fail-closed Step-0 enumerator caught both targets using it on i32/i64 locals (M1 had local.get 0x20 only). Integer-pure; local.tee 0x22 absent.",
+    "block_types": ["empty", "i32", "i64"],
+    "select": "none", "unreachable": "none", "call": "none",
+    "memory": "none", "global": "none", "table": "none", "float": "none",
+    "evidence": "goal-runs/m2-control-flow/scope.txt (generated in M2.0)"
+  },
+  "expected_result": {
+    "total_commands": 57,
+    "modules_instantiated": 2,
+    "PASS": 51,
+    "FAIL": 0,
+    "UNSUPPORTED": 4,
+    "unsupported_reasons": {"assert_invalid": 4},
+    "note": "labels: 25 assert_return + 3 assert_invalid + 1 module; switch: 26 assert_return + 1 assert_invalid + 1 module. Neither has assert_trap."
+  },
+  "m1_non_regression_target": {"PASS": 877, "FAIL": 0, "UNSUPPORTED": 136},
+  "evidence_refs": [
+    "goal-runs/m2-control-flow/contract.md",
+    "goal-runs/m2-control-flow/plan.md",
+    "goal-runs/m2-control-flow/scope.txt",
+    "goal-runs/m2-control-flow/execution-log.md",
+    "build/report/m2_summary.json"
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "milestone": "M2",
+  "statement": "Structured control flow execution. Extends the M1 integer core with block/loop/if/else/br/br_if/br_table/return/drop/nop. NO linear memory, globals, calls, validation execution, or floats (those stay deferred). Additive to M0/M1: manifest_m0.json is NOT modified by this milestone.",
+  "inherits_pin_from": "manifest_m0.json",
+  "spec": {
+    "repo": "https://github.com/WebAssembly/spec",
+    "commit": "82cd4f9555dbf80b20611d8d3a2c6e6f444b228c",
+    "test_core_dir": "test/core",
+    "role": "SEMANTIC ORACLE (authoritative). SAME frozen pin as M0/M1; we author no expected outputs. The `expected` values in the converted JSON were authored by the reference interpreter."
+  },
+  "wabt": {
+    "repo": "https://github.com/WebAssembly/wabt",
+    "role": "TOOLCHAIN ONLY (wast2json / wasm2wat / wasm-objdump). NOT the semantic oracle.",
+    "tag": "1.0.41"
+  },
+  "conversion": {
+    "tool": "wast2json",
+    "disable_features": ["simd", "bulk-memory", "reference-types"],
+    "features_note": "IDENTICAL guardrail to manifest_m0.json (these values MUST match M0's — same converted data). Under these flags, br_if.wast / br_table.wast / select.wast / call_indirect.wast / func.wast REJECT at conversion (typed function references / typed select / externref / declare at pin 82cd4f9). That is why those dedicated files are not M2 targets even though the br_if and br_table OPCODES are covered by labels.wast and switch.wast."
+  },
+  "targets": [
+    { "name": "labels.wast", "upstream_path": "test/core/labels.wast" },
+    { "name": "switch.wast", "upstream_path": "test/core/switch.wast" }
+  ],
+  "targets_note": "Integer-value-clean, structured-control-flow-bearing files whose single instantiated module uses ONLY sections {Type,Function,Export,Code}, opcodes in the M1 integer set plus {nop,block,loop,if,else,br,br_if,br_table,drop,local.set}, and block-types in {empty,i32,i64}; no call/memory/global/table/float. local.set (0x21) is a data-forced addition surfaced by the fail-closed Step-0 enumerator (both files store into i32/i64 locals; M1 had local.get only). local.tee (0x22) is absent. Selected FROM DATA (a read-only probe converting every control-flow candidate under the guardrail flags above and measuring module float purity via wasm2wat + sections/opcodes via wasm-objdump). Evidence: goal-runs/m2-control-flow/scope.txt. Coverage: labels -> block/loop/if/else/br/br_if/br_table/return/drop; switch -> block/br/br_table/nop/return. Together they cover the minimal MVP structured-control-flow set with NO select and NO unreachable (neither appears in these two modules).",
+  "excluded": [
+    {
+      "names": ["block.wast", "loop.wast", "if.wast", "br.wast", "return.wast", "unreachable.wast", "call.wast"],
+      "present_at_commit": true,
+      "reason": "HAS-FLOAT: the single instantiated module mixes f32/f64 functions (fails the body-purity discipline) and pulls in `call` plus Memory/Global/Table/Elem sections. Outside M2 control-flow-only, integer-value scope. Excluded explicitly (not silently skipped); revisit when floats / memory / calls enter scope."
+    },
+    {
+      "names": ["br_if.wast", "br_table.wast", "select.wast", "call_indirect.wast", "func.wast"],
+      "present_at_commit": true,
+      "reason": "REJECT AT CONVERSION under the M0 guardrail flags (--disable-reference-types): these use typed function references / typed select / externref / `declare` at pin 82cd4f9 -- genuinely out of MVP-integer scope. The br_if and br_table OPCODES are still exercised -- by labels.wast and switch.wast respectively -- so M2 covers them without these files."
+    },
+    {
+      "names": ["fac.wast", "forward.wast"],
+      "present_at_commit": true,
+      "reason": "Integer-clean but require `call` (function calls), which is beyond M2 structured-control-flow scope. Excluded explicitly; revisit when call enters scope (a later milestone)."
+    },
+    {
+      "names": ["stack.wast", "nop.wast"],
+      "present_at_commit": true,
+      "reason": "Integer-clean operands, but their instantiated modules need global / memory / table / call plus sections beyond {Type,Function,Export,Code}. Outside M2 control-flow-only scope. Excluded explicitly; revisit with the relevant milestones."
+    }
+  ]
+}

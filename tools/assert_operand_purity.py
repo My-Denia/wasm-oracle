@@ -9,12 +9,15 @@ need no floating point" from a claim into two standing CI assertions.
 Reproduce: python scripts/convert.py && python tools/assert_operand_purity.py
 Exit 0 = clean (f32==f64==0 for every target); 1 = a float operand was found or JSON missing.
 """
-import json, os, collections, sys
+import argparse, json, os, collections, sys
 
-MANIFEST = "manifest_m0.json"
+ap = argparse.ArgumentParser(description="Gate: target assert operands are i32/i64 only.")
+ap.add_argument("--manifest", default="manifest_m0.json",
+                help="manifest JSON whose targets to check (default: manifest_m0.json)")
+args = ap.parse_args()
 CONVERTED = "build/converted"
 
-m = json.load(open(MANIFEST, encoding="utf-8"))
+m = json.load(open(args.manifest, encoding="utf-8"))
 targets = [t["name"] for t in m["targets"]]
 
 

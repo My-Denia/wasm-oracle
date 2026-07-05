@@ -1,0 +1,109 @@
+# M2 Structured Control Flow CI (Linux).
+# Fetches the pinned toolchain + spec test files, converts the M2 manifest (labels, switch), and
+# runs the M2 executor — integer core + structured control flow — against those targets, diffing
+# every value assertion against the frozen reference-interpreter oracle (the `expected` values).
+# Nonzero on any FAIL.
+#
+# Separate from m0.yml / m1.yml BY DESIGN: this workflow adds the M2 gate and cannot regress the
+# earlier milestones' assertions (they run in their own workflows). It converts a DISTINCT manifest
+# (manifest_m2.json) to a DISTINCT report (conversion_report_m2.json), so M0/M1 conversion is never
+# touched. Like m1.yml it needs no OCaml: the oracle is the embedded frozen `expected` values.
+name: M2 Structured Control Flow
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WASM2WAT: vendor/wabt/bin/wasm2wat
+  WASM_OBJDUMP: vendor/wabt/bin/wasm-objdump
+
+jobs:
+  control-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch pinned spec (test/core) + toolchain (WABT@release, sha256-verified)
+        run: python scripts/fetch_oracle.py
+
+      - name: Convert the M2 manifest via WABT wast2json (post-MVP extensions disabled = guardrail)
+        # Distinct manifest + report path: M0/M1 conversion artifacts are never overwritten.
+        run: python scripts/convert.py --manifest manifest_m2.json --report build/report/conversion_report_m2.json
+
+      - name: M2 purity gate — assert-operand layer (no f32/f64 in M2 target assertions)
+        run: python tools/assert_operand_purity.py --manifest manifest_m2.json
+
+      - name: M2 purity gate — body layer (no f32/f64 in instantiated M2 modules)
+        run: python tools/body_purity_check.py --manifest manifest_m2.json
+
+      - name: Re-derive M2 scope and prove the committed evidence is reproducible (FAIL-CLOSED)
+        # enumerate_m2_scope.py itself EXITS NONZERO if the real data steps outside the frozen M2
+        # scope; then the committed scope.txt must byte-match what it regenerates.
+        run: |
+          python tools/enumerate_m2_scope.py
+          git diff --exit-code goal-runs/m2-control-flow/scope.txt \
+            || (echo "m2 scope.txt drifted from real data — re-run tools/enumerate_m2_scope.py and commit" && exit 1)
+
+      - name: M2 decoder self-test (decoder vs pinned wasm-objdump, labels/switch)
+        run: python tests/decoder_selftest.py --manifest manifest_m2.json
+
+      - name: M2 interpreter control-flow unit tests
+        run: python tests/test_control_flow.py
+
+      - name: M2 comparator positive control (a wrong expected MUST classify FAIL)
+        run: python tests/positive_control_m2.py
+
+      - name: M2 execution gate (oracle diff over labels/switch; nonzero on any FAIL)
+        run: python scripts/run_m2.py
+
+      - name: Assert M2 conditions (0 FAIL, nothing dropped, every target covered)
+        run: |
+          python - <<'PY'
+          import json
+          conv = json.load(open("build/report/conversion_report_m2.json"))
+          m2   = json.load(open("build/report/m2_summary.json"))
+          t = m2["totals"]
+
+          # 1. Zero FAIL — every in-scope control-flow assertion matched the frozen oracle.
+          assert t["FAIL"] == 0, f"M2 has {t['FAIL']} FAIL(s) — see build/report/m2_summary.json"
+
+          # 2. No command dropped: modules + PASS + FAIL + UNSUPPORTED == total, and the total
+          #    equals exactly what conversion produced (no file silently missed).
+          assert (t["modules_instantiated"] + t["PASS"] + t["FAIL"] + t["UNSUPPORTED"]) == t["total"], \
+              "M2 accounting mismatch"
+          assert t["total"] == conv["totals"]["total_commands"], \
+              "M2 total_commands != conversion_report total (a file went missing)"
+
+          # 3. It actually executed control flow, and UNSUPPORTED is only validation commands.
+          assert t["PASS"] > 0 and t["modules_instantiated"] > 0, "M2 executed nothing"
+          for reason in t["unsupported_reasons"]:
+              assert "validation" in reason, f"unexpected UNSUPPORTED reason: {reason}"
+
+          print(f"M2 CI assertions passed: PASS={t['PASS']} FAIL=0 UNSUPPORTED={t['UNSUPPORTED']} "
+                f"modules={t['modules_instantiated']} total={t['total']} (== conversion total).")
+          print("Every in-scope control-flow assertion matches the frozen reference-interpreter oracle.")
+          PY
+
+      - name: Upload M2 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m2-report
+          path: |
+            build/report/m2_summary.json
+            build/report/conversion_report_m2.json
+            goal-runs/m2-control-flow/scope.txt
