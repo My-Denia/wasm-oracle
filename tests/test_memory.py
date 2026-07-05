@@ -151,6 +151,22 @@ class Grow(unittest.TestCase):
         self.assertEqual(res, [1])
         self.assertEqual(m.mem.pages, 5)
 
+    def test_grow_host_allocation_failure_returns_minus_one_unchanged(self):
+        # A min-only memory admits deltas up to 65536 pages (4 GiB) — cur+delta <= engine cap passes
+        # the limit check, so a genuine host OOM must be caught and reported as -1 with the memory
+        # UNCHANGED (spec: memory.grow never traps), rather than killing the runner. Simulate the
+        # host refusing the allocation instead of actually trying to materialize 4 GiB.
+        mem = M.Memory(1, None)
+
+        class _OOMBytearray(bytearray):
+            def extend(self, _):
+                raise MemoryError("simulated host OOM")
+
+        mem.data = _OOMBytearray(mem.data)
+        before = len(mem.data)
+        self.assertEqual(mem.grow(1), -1)            # allocation failure -> -1, not a crash
+        self.assertEqual(len(mem.data), before)      # memory unchanged
+
 
 class StoreThenObserveViaSize(unittest.TestCase):
     def test_store_persists_in_instance_memory(self):

@@ -114,12 +114,15 @@ and re-verified. `vendor/` and `build/` stay gitignored/regenerable.
   `build/report/m3_summary.json`, nonzero on FAIL, no-drop assertion, UNSUPPORTED reason re-tagging
   (validation → "deferred to M4").
 - **Verify (binary):** `run_m3.py` exits 0 with `modules=5, PASS=45, FAIL=0, UNSUPPORTED=60`,
-  `5+45+0+60==110`, every UNSUPPORTED reason is a validation command. This is the AUTHORITATIVE
-  oracle check for grow semantics: `memory_size.wast`'s four limit forms — `(memory 0)` (grows to 5
-  pages, no max), `(memory 1)`, `(memory 0 2)` (`grow 3`→−1, `grow 4`→−1: past-max failure), and
-  `(memory 3 8)` (`grow 2` at size 7 → −1, `grow 1` → 8: at-boundary success/failure) — must all
-  PASS against the frozen `expected`, and the `modules=5` count confirms all 5 `type==module`
-  commands (1 store + 4 memory_size) instantiated with fresh per-instance memory.
+  `5+45+0+60==110`, every UNSUPPORTED reason is a validation command. This is the oracle check for
+  grow's observable EFFECT (the exported `grow` DROPS its result, so the `assert_return`s carry an
+  empty expected — the oracle sees a refused growth only INDIRECTLY, via the next `memory.size`):
+  `memory_size.wast`'s four limit forms — `(memory 0)` (grows to 5 pages, no max), `(memory 1)`,
+  `(memory 0 2)` (`grow 3` then size→0, `grow 4` then size→1: growth refused, size unchanged), and
+  `(memory 3 8)` (`grow 2` at size 7 refused then size→7, `grow 1` then size→8) — must all PASS
+  against the frozen `expected`, and `modules=5` confirms all 5 `type==module` commands (1 store +
+  4 memory_size) instantiated with fresh per-instance memory. The −1 RETURN value itself is verified
+  by `tests/test_memory.py`, not by the oracle.
 
 ### M3.4 — Positive control (anti-false-pass)
 - Add `tests/positive_control_m3.py`: pristine real M3 module+assertion ⇒ FAIL==0, PASS≥1; corrupt

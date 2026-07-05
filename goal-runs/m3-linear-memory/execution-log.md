@@ -96,3 +96,26 @@
 - Implementation complete + independently audited PASS. Nothing committed or pushed.
 - Awaiting owner approval to: commit on branch m3-linear-memory (signed, no AI trailer), push, open
   PR to main. Agent does not self-merge.
+
+## Ship (owner-approved) + CI
+- Owner approved "commit + push + open PR". Signed commit 70f7f56 (Good git signature, no AI
+  trailer), pushed origin/m3-linear-memory, opened PR #5 to main, requested @codex review.
+- GitHub Actions: m0 oracle-harness PASS (1m41s), m1 integer-core PASS, m2 control-flow PASS, m3
+  linear-memory PASS. All 4 green.
+
+## Codex review round 1 — 3 inline findings, all addressed on evidence (not blindly)
+- P2 machine.py grow: min-only memory admits delta up to 65536 pages -> grow of ~4GiB would OOM the
+  runner instead of returning -1. FIXED: catch MemoryError/OverflowError in Memory.grow -> return -1,
+  memory unchanged (spec: grow never traps). Regression test
+  test_grow_host_allocation_failure_returns_minus_one_unchanged (simulates host OOM via a bytearray
+  whose extend raises).
+- P2 enumerate_m3_scope.py: FROZEN_M3_OPS derived from mutable dec.OPCODES -> a future decoder
+  extension could silently expand the frozen gate. FIXED: pinned an EXPLICIT 84-mnemonic snapshot
+  (verified == current dec.OPCODES exactly), decoupled from the decoder. scope.txt output unchanged.
+- P3 contract/plan/manifest: overstated that grow 3/grow 4 "return -1 matches the oracle". FIXED:
+  the exported grow DROPS the result, so the oracle checks grow's EFFECT via the following
+  memory.size assert; the -1 return is unit-tested only. Wording corrected in contract.md, plan.md,
+  manifest_m3.json.
+- Re-verified after fixes: test_memory 30/30, run_m3 45/0/60, positive_control_m3 OK, enumerate_m3
+  IN SCOPE + self-check + scope.txt byte-unchanged, decoder self-test M3 5/5, run_m1 877/0/136,
+  run_m2 51/0/4.

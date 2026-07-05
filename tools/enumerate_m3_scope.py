@@ -43,7 +43,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from interp import decoder as dec  # noqa: E402  (single source of truth for opcode mnemonics)
 
 DEFAULT_MANIFEST = ROOT / "manifest_m3.json"
 CONVERTED = ROOT / "build" / "converted"
@@ -52,15 +51,39 @@ OBJDUMP = os.environ.get("WASM_OBJDUMP", str(ROOT / "vendor" / "wabt" / "bin" / 
 
 ALLOWED_SECTIONS = {"Type", "Function", "Export", "Code", "Memory"}
 
-# Frozen M3 opcode scope = the M1 integer core + M2 control flow (both already in decoder.OPCODES)
-# + the linear-memory ops this milestone adds. The memory set is stated EXPLICITLY here (this file
-# owns the scope POLICY) so the gate is order-independent and can block the decoder work whether or
-# not decoder.OPCODES has been extended yet.
+# The ONLY linear-memory opcodes M3 admits (the residual-ban allow-sets are subsets of this).
 MEMORY_OPS = {"i32.store", "memory.size", "memory.grow"}
-FROZEN_M3_OPS = {mn for (mn, _imm) in dec.OPCODES.values()} | MEMORY_OPS
-# Residual-ban allow-sets (asymmetric): the ONLY store / memory.* opcodes M3 admits.
 ALLOWED_STORES = {"i32.store"}
 ALLOWED_MEMORY_MISC = {"memory.size", "memory.grow"}
+
+# Frozen M3 opcode scope = the M1 integer core + M2 control flow + the M3 memory ops. This is an
+# EXPLICIT, PINNED snapshot — NOT derived from interp.decoder.OPCODES. Deriving it from the mutable
+# decoder table would let this fail-closed gate silently EXPAND whenever a later milestone extends
+# the decoder (e.g. a future `local.tee`/`unreachable`/load that the residual bans below don't
+# name would join the frozen set and a target containing it would no longer be reported out of M3
+# scope). The gate's job is to FREEZE M3's scope independently of the implementation; so the policy
+# lives here as data. If a future milestone deliberately widens M3, it edits THIS set — a reviewed
+# act, not an implicit side effect of touching the decoder. (Snapshot taken from decoder.OPCODES at
+# M3: 71 integer + 10 control-flow + 3 memory = 84 mnemonics; the decoder self-test still validates
+# their BYTES against wasm-objdump.)
+FROZEN_M3_OPS = frozenset({
+    # M1 integer core
+    "i32.add", "i32.and", "i32.clz", "i32.const", "i32.ctz", "i32.div_s", "i32.div_u", "i32.eq",
+    "i32.eqz", "i32.extend16_s", "i32.extend8_s", "i32.ge_s", "i32.ge_u", "i32.gt_s", "i32.gt_u",
+    "i32.le_s", "i32.le_u", "i32.lt_s", "i32.lt_u", "i32.mul", "i32.ne", "i32.or", "i32.popcnt",
+    "i32.rem_s", "i32.rem_u", "i32.rotl", "i32.rotr", "i32.shl", "i32.shr_s", "i32.shr_u",
+    "i32.sub", "i32.wrap_i64", "i32.xor",
+    "i64.add", "i64.and", "i64.clz", "i64.const", "i64.ctz", "i64.div_s", "i64.div_u", "i64.eq",
+    "i64.eqz", "i64.extend16_s", "i64.extend32_s", "i64.extend8_s", "i64.extend_i32_s",
+    "i64.extend_i32_u", "i64.ge_s", "i64.ge_u", "i64.gt_s", "i64.gt_u", "i64.le_s", "i64.le_u",
+    "i64.lt_s", "i64.lt_u", "i64.mul", "i64.ne", "i64.or", "i64.popcnt", "i64.rem_s", "i64.rem_u",
+    "i64.rotl", "i64.rotr", "i64.shl", "i64.shr_s", "i64.shr_u", "i64.sub", "i64.xor",
+    "local.get", "end", "return",
+    # M2 structured control flow (+ local.set)
+    "nop", "block", "loop", "if", "else", "br", "br_if", "br_table", "drop", "local.set",
+    # M3 linear memory
+    "i32.store", "memory.size", "memory.grow",
+})
 # The memory opcodes we EXPECT to actually see exercised (proves M3 targets test memory).
 EXPECTED_MEMORY_OPS = {"i32.store", "memory.size", "memory.grow"}
 

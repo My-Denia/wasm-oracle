@@ -161,11 +161,18 @@ These are named here so a specific check is allocated to each — not left as im
   store and asserts the OOB trap; `store.wast` PASS=9 (every store in-bounds).
 - **`memory.grow` / `memory.size` page-and-limit arithmetic.** `memory.size` returns the current
   page count (i32). `memory.grow(delta)`: if `cur + delta` exceeds the declared max (or the engine
-  cap of 65536 pages when no max) it returns −1 (`0xFFFFFFFF`) and does not grow; otherwise it
-  zero-extends the memory by `delta` pages and returns the previous page count. Both take a reserved
-  memidx byte that must be `0x00` (nonzero → `Unsupported`, multi-memory). Evidence:
-  `memory_size.wast`'s `(memory 0 2)` module — `grow 3` (0+3 > 2 → −1, size stays 0) and `grow 4`
-  (1+4 > 2 → −1) — matches the oracle; the `(memory 0)` module grows to 5 pages across invokes.
+  cap of 65536 pages when no max, or the host cannot allocate) it returns −1 (`0xFFFFFFFF`) and does
+  not grow; otherwise it zero-extends the memory by `delta` pages and returns the previous page
+  count. Both take a reserved memidx byte that must be `0x00` (nonzero → `Unsupported`, multi-memory).
+  **Oracle-coverage note (precise):** in `memory_size.wast` the exported `grow` function DROPS
+  `memory.grow`'s result (`(drop (memory.grow …))`), so the `assert_return (invoke "grow" …)`
+  commands carry an EMPTY expected. The oracle therefore verifies grow's observable EFFECT — that it
+  executed without trapping, and that a REFUSED growth left the page count unchanged — via the
+  FOLLOWING `memory.size` assert, NOT the −1 return value directly. Evidence: `(memory 0 2)` —
+  `grow 3` then `size`→0, and (at size 1) `grow 4` then `size`→1 (both refused, size unchanged);
+  `(memory 3 8)` — `grow 2` at size 7 refused then `size`→7, `grow 1` then `size`→8; `(memory 0)`
+  grows to 5 pages across invokes. The −1 RETURN value itself (and the host-OOM path) is verified by
+  `tests/test_memory.py`, not by the oracle — recorded honestly.
 - **Memory persists on the instance across invokes.** The memory is allocated once at
   `instantiate()` and mutated in place, so a `grow` in one invoke is visible to the next `size`.
   Evidence: `memory_size.wast` interleaves `grow`/`size` across separate invokes and matches the

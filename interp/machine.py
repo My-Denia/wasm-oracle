@@ -69,13 +69,19 @@ class Memory:
 
     def grow(self, delta: int) -> int:
         """Grow by `delta` pages (zero-filled) and return the PREVIOUS page count, or -1 if the
-        growth would exceed the declared max (or the memory32 engine cap when no max is declared).
-        Spec semantics: on failure the memory is unchanged."""
+        growth would exceed the declared max (or the memory32 engine cap when no max is declared),
+        OR if the host cannot actually allocate the bytes. Spec semantics: on failure the memory is
+        unchanged and `memory.grow` yields -1 (it never traps). A min-only memory admits deltas up
+        to 65536 pages (4 GiB); rather than let such a request kill the runner, a real allocation
+        failure is caught and reported as -1, exactly like the page-limit failure."""
         cur = self.pages
         cap = self.max_pages if self.max_pages is not None else MAX_PAGES
         if delta < 0 or cur + delta > cap:
             return -1
-        self.data.extend(b"\x00" * (delta * PAGE_SIZE))
+        try:
+            self.data.extend(bytes(delta * PAGE_SIZE))    # allocate+zero-fill delta pages
+        except (MemoryError, OverflowError):
+            return -1                                     # host OOM -> grow fails, memory unchanged
         return cur
 
 
