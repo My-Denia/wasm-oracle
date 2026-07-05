@@ -1,0 +1,113 @@
+# M3 Linear Memory CI (Linux).
+# Fetches the pinned toolchain + spec test files, converts the M3 manifest (store, memory_size), and
+# runs the M3 executor — integer core + structured control flow + linear memory — against those
+# targets, diffing every value assertion against the frozen reference-interpreter oracle (the
+# `expected` values). Nonzero on any FAIL.
+#
+# Separate from m0.yml / m1.yml / m2.yml BY DESIGN: this workflow adds the M3 gate and cannot regress
+# the earlier milestones' assertions (they run in their own workflows). It converts a DISTINCT
+# manifest (manifest_m3.json) to a DISTINCT report (conversion_report_m3.json), so M0/M1/M2
+# conversion is never touched. Like m1/m2 it needs no OCaml: the oracle is the embedded frozen
+# `expected` values.
+name: M3 Linear Memory
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m3-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WASM2WAT: vendor/wabt/bin/wasm2wat
+  WASM_OBJDUMP: vendor/wabt/bin/wasm-objdump
+
+jobs:
+  linear-memory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch pinned spec (test/core) + toolchain (WABT@release, sha256-verified)
+        run: python scripts/fetch_oracle.py
+
+      - name: Convert the M3 manifest via WABT wast2json (post-MVP extensions disabled = guardrail)
+        # Distinct manifest + report path: M0/M1/M2 conversion artifacts are never overwritten.
+        # --disable-bulk-memory makes memory.wast / data.wast / align.wast REJECT here (they use
+        # bulk-memory / passive-data syntax at the pin) — which is why they are not M3 targets.
+        run: python scripts/convert.py --manifest manifest_m3.json --report build/report/conversion_report_m3.json
+
+      - name: M3 purity gate — assert-operand layer (no f32/f64 in M3 target assertions)
+        run: python tools/assert_operand_purity.py --manifest manifest_m3.json
+
+      - name: M3 purity gate — body layer (no f32/f64 in instantiated M3 modules)
+        run: python tools/body_purity_check.py --manifest manifest_m3.json
+
+      - name: Re-derive M3 scope and prove the committed evidence is reproducible (FAIL-CLOSED)
+        # enumerate_m3_scope.py runs an inline self-check proving its ASYMMETRIC allow-set + residual
+        # bans actually FIRE on injected out-of-scope opcodes, then EXITS NONZERO if the real data
+        # steps outside the frozen M3 scope; then the committed scope.txt must byte-match it.
+        run: |
+          python tools/enumerate_m3_scope.py
+          git diff --exit-code goal-runs/m3-linear-memory/scope.txt \
+            || (echo "m3 scope.txt drifted from real data — re-run tools/enumerate_m3_scope.py and commit" && exit 1)
+
+      - name: M3 decoder self-test (decoder vs pinned wasm-objdump, store/memory_size)
+        run: python tests/decoder_selftest.py --manifest manifest_m3.json
+
+      - name: M3 interpreter linear-memory unit tests
+        run: python tests/test_memory.py
+
+      - name: M3 comparator positive control (a wrong expected MUST classify FAIL)
+        run: python tests/positive_control_m3.py
+
+      - name: M3 execution gate (oracle diff over store/memory_size; nonzero on any FAIL)
+        run: python scripts/run_m3.py
+
+      - name: Assert M3 conditions (0 FAIL, nothing dropped, every target covered)
+        run: |
+          python - <<'PY'
+          import json
+          conv = json.load(open("build/report/conversion_report_m3.json"))
+          m3   = json.load(open("build/report/m3_summary.json"))
+          t = m3["totals"]
+
+          # 1. Zero FAIL — every in-scope linear-memory assertion matched the frozen oracle.
+          assert t["FAIL"] == 0, f"M3 has {t['FAIL']} FAIL(s) — see build/report/m3_summary.json"
+
+          # 2. No command dropped: modules + PASS + FAIL + UNSUPPORTED == total, and the total
+          #    equals exactly what conversion produced (no file silently missed).
+          assert (t["modules_instantiated"] + t["PASS"] + t["FAIL"] + t["UNSUPPORTED"]) == t["total"], \
+              "M3 accounting mismatch"
+          assert t["total"] == conv["totals"]["total_commands"], \
+              "M3 total_commands != conversion_report total (a file went missing)"
+
+          # 3. It actually executed memory, and UNSUPPORTED is only validation commands.
+          assert t["PASS"] > 0 and t["modules_instantiated"] > 0, "M3 executed nothing"
+          for reason in t["unsupported_reasons"]:
+              assert "validation" in reason, f"unexpected UNSUPPORTED reason: {reason}"
+
+          print(f"M3 CI assertions passed: PASS={t['PASS']} FAIL=0 UNSUPPORTED={t['UNSUPPORTED']} "
+                f"modules={t['modules_instantiated']} total={t['total']} (== conversion total).")
+          print("Every in-scope linear-memory assertion matches the frozen reference-interpreter oracle.")
+          PY
+
+      - name: Upload M3 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m3-report
+          path: |
+            build/report/m3_summary.json
+            build/report/conversion_report_m3.json
+            goal-runs/m3-linear-memory/scope.txt

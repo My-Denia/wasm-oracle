@@ -1,4 +1,4 @@
-"""machine.py — the integer interpreter (M1 core + M2 structured control flow).
+"""machine.py — the integer interpreter (M1 core + M2 structured control flow + M3 linear memory).
 
 Executes a decoded Module's function bodies over an i32/i64 value stack, with EXACT integer
 semantics per the WebAssembly spec (stable, not time-sensitive): wrapping arithmetic mod 2**N;
@@ -13,7 +13,16 @@ nop) plus local.set. The decoder keeps the body FLAT; here `_structure` parses i
 block tree and `_exec_seq` / `_exec_block` evaluate it over a value stack + a label stack. `br l`
 targets the l-th enclosing label (0 = innermost): a block/if target transfers PAST its `end`, a
 loop target to the loop HEADER (re-entry); `return` escapes all blocks. Integer opcode semantics
-are unchanged from M1. Any opcode outside the decoded scope cannot appear (the decoder rejects it).
+are unchanged from M1.
+
+M3 adds LINEAR MEMORY (minimal MVP subset): a per-instance page-granular `bytearray` (`Memory`,
+allocated at `instantiate()` from the decoded Memory-section limits and PERSISTED across invokes),
+`i32.store` (little-endian 4-byte write with an effective-address bounds check that traps
+"out of bounds memory access"), `memory.size` (page count), and `memory.grow` (zero-extend within
+the declared max / engine cap, returning the previous page count or -1). The memory is threaded
+through `_exec_seq`/`_exec_block`/`_exec_instr` as `mem` (None for M1/M2 modules). Loads and the
+wider/narrow stores are DEFERRED — the decoder rejects their bytes, so they cannot appear. Any
+opcode outside the decoded scope cannot appear (the decoder rejects it).
 """
 from __future__ import annotations
 
@@ -36,11 +45,53 @@ class Trap(Exception):
 
 DIV_ZERO = "integer divide by zero"
 OVERFLOW = "integer overflow"
+# M3 linear memory. The trap text is the spec-canonical string authored by the reference
+# interpreter (test/core/memory_trap.wast:23, memory_grow.wast:86) — read from the oracle, not
+# invented here. No in-scope M3 target triggers it (store.wast stores in-bounds), so it is proven by
+# tests/test_memory.py, not by an oracle assertion.
+OOB = "out of bounds memory access"
+PAGE_SIZE = 65536          # a WASM linear-memory page is 64 KiB
+MAX_PAGES = 65536          # memory32 engine cap (4 GiB) used when a memory declares no maximum
+
+
+class Memory:
+    """A linear memory: a page-granular little-endian bytearray plus the declared maximum (in
+    pages) if any. Addresses are byte offsets; `pages` is derived from the current byte length."""
+    __slots__ = ("data", "max_pages")
+
+    def __init__(self, min_pages: int, max_pages: int | None):
+        self.data = bytearray(min_pages * PAGE_SIZE)
+        self.max_pages = max_pages
+
+    @property
+    def pages(self) -> int:
+        return len(self.data) // PAGE_SIZE
+
+    def grow(self, delta: int) -> int:
+        """Grow by `delta` pages (zero-filled) and return the PREVIOUS page count, or -1 if the
+        growth would exceed the declared max (or the memory32 engine cap when no max is declared),
+        OR if the host cannot actually allocate the bytes. Spec semantics: on failure the memory is
+        unchanged and `memory.grow` yields -1 (it never traps). A min-only memory admits deltas up
+        to 65536 pages (4 GiB); rather than let such a request kill the runner, a real allocation
+        failure is caught and reported as -1, exactly like the page-limit failure."""
+        cur = self.pages
+        cap = self.max_pages if self.max_pages is not None else MAX_PAGES
+        if delta < 0 or cur + delta > cap:
+            return -1
+        try:
+            self.data.extend(bytes(delta * PAGE_SIZE))    # allocate+zero-fill delta pages
+        except (MemoryError, OverflowError):
+            return -1                                     # host OOM -> grow fails, memory unchanged
+        return cur
 
 
 def instantiate(module: Module) -> Module:
-    """M1 modules have no start function, imports, globals, memory, or data — instantiation is
-    just the decoded module. Kept as a named seam for later milestones."""
+    """Allocate the module's linear memory (if it declares one) from the decoded Memory-section
+    limits, attach it, and return the module as the runnable instance. M1/M2 modules declare no
+    memory (module.mems empty) → mem stays None. The memory is per-instance mutable state that
+    PERSISTS across invoke() calls on this instance (required by memory_size.wast, which interleaves
+    grow/size over separate invokes); a fresh module decode + instantiate yields a fresh memory."""
+    module.mem = Memory(*module.mems[0]) if module.mems else None
     return module
 
 
@@ -63,8 +114,9 @@ def invoke(module: Module, field_name: str, args: list[int]) -> list[int]:
     # the outermost depth (directly, or from within nested blocks) branches to the function end —
     # the same observable effect as `return`. Seed that label so such branches resolve instead of
     # indexing off the label stack.
+    mem = getattr(module, "mem", None)   # this instance's linear memory (None for M1/M2 modules)
     try:
-        _exec_seq(seq, stack, locals_, [_Label("func", nres, 0)])
+        _exec_seq(seq, stack, locals_, [_Label("func", nres, 0)], mem)
     except _Return:
         pass
     except _Branch:
@@ -168,21 +220,21 @@ def _parse_block(body: list[Instr], i: int) -> tuple[_Block, int]:
     return _Block(kind, opener.bt or [], then_seq, else_seq), i
 
 
-def _exec_seq(seq: list, stack: list[int], locals_: list[int], labels: list) -> None:
+def _exec_seq(seq: list, stack: list[int], locals_: list[int], labels: list, mem) -> None:
     for item in seq:
         if type(item) is _Block:
-            _exec_block(item, stack, locals_, labels)
+            _exec_block(item, stack, locals_, labels, mem)
         else:
-            _exec_instr(item, stack, locals_, labels)
+            _exec_instr(item, stack, locals_, labels, mem)
 
 
-def _exec_block(blk: _Block, stack: list[int], locals_: list[int], labels: list) -> None:
+def _exec_block(blk: _Block, stack: list[int], locals_: list[int], labels: list, mem) -> None:
     if blk.kind == "if":
         cond = stack.pop() & V.MASK32
         base = len(stack)
         chosen = blk.then_seq if cond != 0 else (blk.else_seq or [])
         try:                                                 # `if` branches like a block (to end)
-            _exec_seq(chosen, stack, locals_, labels + [_Label("block", len(blk.results), base)])
+            _exec_seq(chosen, stack, locals_, labels + [_Label("block", len(blk.results), base)], mem)
         except _Branch as b:
             if b.depth:
                 raise _Branch(b.depth - 1)
@@ -192,7 +244,7 @@ def _exec_block(blk: _Block, stack: list[int], locals_: list[int], labels: list)
         label = _Label("loop", 0, base)                      # br to a loop carries 0 params, re-enters
         while True:
             try:
-                _exec_seq(blk.then_seq, stack, locals_, labels + [label])
+                _exec_seq(blk.then_seq, stack, locals_, labels + [label], mem)
                 return                                       # normal completion exits the loop
             except _Branch as b:
                 if b.depth:
@@ -201,7 +253,7 @@ def _exec_block(blk: _Block, stack: list[int], locals_: list[int], labels: list)
     else:  # block
         base = len(stack)
         try:
-            _exec_seq(blk.then_seq, stack, locals_, labels + [_Label("block", len(blk.results), base)])
+            _exec_seq(blk.then_seq, stack, locals_, labels + [_Label("block", len(blk.results), base)], mem)
         except _Branch as b:
             if b.depth:
                 raise _Branch(b.depth - 1)
@@ -218,7 +270,7 @@ def _do_br(depth: int, stack: list[int], labels: list) -> None:
     raise _Branch(depth)
 
 
-def _exec_instr(ins: Instr, stack: list[int], locals_: list[int], labels: list) -> None:
+def _exec_instr(ins: Instr, stack: list[int], locals_: list[int], labels: list, mem) -> None:
     op = ins.op
     push, pop = stack.append, stack.pop
     if op == "nop":
@@ -245,6 +297,22 @@ def _exec_instr(ins: Instr, stack: list[int], locals_: list[int], labels: list) 
         idx = pop() & V.MASK32                               # index is i32, interpreted unsigned
         tgt = ins.targets[idx] if idx < len(ins.targets) else ins.default
         _do_br(tgt, stack, labels); return
+    # M3 linear-memory ops. Effective address = base (i32, unsigned) + static offset; the memarg
+    # ALIGN is only an optimization hint and is NOT used to relax or tighten bounds. Trap text is the
+    # spec-canonical OOB string. mem is None only for a (validation-invalid) store-without-memory
+    # module, which no in-scope target contains; treating it as OOB is a safe fallback.
+    if op == "i32.store":
+        val = pop() & V.MASK32
+        base = pop() & V.MASK32
+        ea = base + ins.offset
+        if mem is None or ea + 4 > len(mem.data):
+            raise Trap(OOB)
+        mem.data[ea:ea + 4] = val.to_bytes(4, "little")      # little-endian 4-byte store
+        return
+    if op == "memory.size":
+        push(mem.pages); return                              # current size in 64 KiB pages
+    if op == "memory.grow":
+        push(mem.grow(pop() & V.MASK32) & V.MASK32); return  # prev pages, or 0xFFFFFFFF (-1) on failure
     # integer numeric ops — identical semantics to M1
     kind, _, rest = op.partition(".")
     bits = 32 if kind == "i32" else 64

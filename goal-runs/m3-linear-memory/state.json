@@ -1,0 +1,72 @@
+{
+  "milestone": "M3",
+  "title": "Linear Memory",
+  "status": "completed-pending-owner-commit",
+  "baseline": {"branch": "origin/main", "commit": "f6a2574"},
+  "work_branch": "m3-linear-memory (created from origin/main; commit/push owner-gated)",
+  "risk": "medium",
+  "audit_mode": "independent-subagents",
+  "committed": false,
+  "pushed": false,
+  "gates": {
+    "plan_audit": {
+      "mode": "independent-subagents",
+      "decision": "needs-replan -> replanned",
+      "note": "Auditor confirmed arithmetic (store 68 / memory_size 42 / total 110; 5+45+0+60==110) against source, oracle discipline, non-regression protection, 0x40-vs-blocktype disjointness, instantiate() seam reality, and owner gating. ONE blocking fix folded: the M3 enumerator must NOT copy M2's categorical .load/.store/memory. ban (would false-reject i32.store/memory.size/memory.grow) — replaced with an ASYMMETRIC allow-set + residual bans (any .load; any .store not i32.store; any memory.* not size/grow; Data section) + a live monkeypatch regression proving the ban fires. THREE recommended folds added: (1) per-instance fresh-memory FIRST-RUN path unit-tested; (2) OOB trap-string provenance clarified (constant from upstream memory_trap.wast:23 / memory_grow.wast:86, excluded files never converted in M3); (3) memory_size's 4 limit forms named as the grow oracle check. Auditor pre-cleared execution once folded.",
+      "conditionally_cleared": true
+    },
+    "execution_audit": {"mode": "independent-subagents", "decision": "pass",
+      "note": "9/9 criteria independently verified from raw evidence in fresh processes. Adversarially drove scope_violations: in-scope {i32.store} returns [] (asymmetry proven), all 16 out-of-scope injections fire, _assert_gate_live runs first in main(). Decoder rejects all deferred bytes 0x28-0x35/0x37-0x3E, sections 11/2/4/6/9/8/12/0, limits flags 0x03/0x04/0x05, multi-memory, nonzero memidx. 0x40 opcode vs empty-block-type disjoint (M2 byte-identical). Memory LE + bounds trap 'out of bounds memory access' + grow prev/-1/max/cap + align-ignored + per-instance-fresh all confirmed. Protected files byte-untouched; no authored expected; clean diff. Owner boundary (commit/push/PR) NOT authorized by the audit."},
+    "step0_scope_gate": {"cmd": "tools/enumerate_m3_scope.py", "exit": 0, "fail_closed": true, "asymmetric": true,
+      "note": "IN SCOPE; inline self-check PASS; scope.txt byte-deterministic (git diff --exit-code = 0)."},
+    "decoder_selftest_m3": {"cmd": "tests/decoder_selftest.py --manifest manifest_m3.json", "exit": 0, "modules_checked": 5},
+    "decoder_selftest_m2": {"cmd": "tests/decoder_selftest.py --manifest manifest_m2.json", "exit": 0, "modules_checked": 2, "unchanged": true},
+    "decoder_selftest_m1": {"cmd": "tests/decoder_selftest.py", "exit": 0, "modules_checked": 22, "unchanged": true},
+    "memory_tests": {"cmd": "tests/test_memory.py", "exit": 0, "tests": 29},
+    "positive_control_m3": {"cmd": "tests/positive_control_m3.py", "exit": 0},
+    "execution_gate_m3": {"cmd": "scripts/run_m3.py", "exit": 0},
+    "m3_purity": {"assert_operand_purity_m3": 0, "body_purity_check_m3": 0},
+    "m0_m1_m2_not_regressed": {
+      "run_m1": {"PASS": 877, "FAIL": 0, "UNSUPPORTED": 136},
+      "run_m2": {"PASS": 51, "FAIL": 0, "UNSUPPORTED": 4},
+      "test_semantics": 0, "test_control_flow": 0,
+      "positive_control": 0, "positive_control_m2": 0,
+      "run_skeleton_supported": 0,
+      "enumerate_m1_scope_pin_diff": 0, "enumerate_m2_scope_pin_diff": 0,
+      "decoder_selftest_noarg": 0,
+      "protected_files_diff_vs_origin_main": "EMPTY (manifest_m0/m2, run_m1/m2, enumerate_m1/m2, m0/m1/m2.yml, m1/m2 scope files)"
+    }
+  },
+  "scope": {
+    "targets": ["store.wast", "memory_size.wast"],
+    "sections": ["Type", "Function", "Export", "Code", "Memory"],
+    "new_opcodes": ["i32.store", "memory.size", "memory.grow"],
+    "new_opcodes_note": "i32.store (0x36) from store.wast; memory.size (0x3F) + memory.grow (0x40) from memory_size.wast. Loads (0x28-0x35), i64.store, and narrow stores (0x37-0x3E) stay Unsupported (no integer-pure target uses them at pin 82cd4f9).",
+    "memory_limits": ["min-only (flags 0x00)", "min+max (flags 0x01)"],
+    "immediates_added": ["memarg (align:u32 + offset:u32)", "reserved memidx byte (must be 0x00)"],
+    "data_section": "DEFERRED (Unsupported) - no target declares a data segment",
+    "loads": "DEFERRED (Unsupported)",
+    "oob_trap": "implemented for i32.store correctness + unit-tested; trap text 'out of bounds memory access' read from oracle JSON (memory_grow/memory_trap); NOT exercised by an in-scope target",
+    "select": "none", "unreachable": "none", "call": "none",
+    "global": "none", "table": "none", "import": "none", "float": "none",
+    "evidence": "goal-runs/m3-linear-memory/scope.txt (generated in M3.0)"
+  },
+  "expected_result": {
+    "total_commands": 110,
+    "modules_instantiated": 5,
+    "PASS": 45,
+    "FAIL": 0,
+    "UNSUPPORTED": 60,
+    "unsupported_reasons": {"assert_invalid": 53, "assert_malformed": 7},
+    "note": "store.wast: 1 module + 9 assert_return + 51 assert_invalid + 7 assert_malformed. memory_size.wast: 4 module + 36 assert_return + 2 assert_invalid. Neither has assert_trap. VERIFIED by run_m3.py, not asserted."
+  },
+  "m1_non_regression_target": {"PASS": 877, "FAIL": 0, "UNSUPPORTED": 136},
+  "m2_non_regression_target": {"PASS": 51, "FAIL": 0, "UNSUPPORTED": 4},
+  "evidence_refs": [
+    "goal-runs/m3-linear-memory/contract.md",
+    "goal-runs/m3-linear-memory/plan.md",
+    "goal-runs/m3-linear-memory/scope.txt",
+    "goal-runs/m3-linear-memory/execution-log.md",
+    "build/report/m3_summary.json"
+  ]
+}

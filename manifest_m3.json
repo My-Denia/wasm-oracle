@@ -1,0 +1,48 @@
+{
+  "milestone": "M3",
+  "statement": "Linear memory execution (minimal MVP subset). Extends the M1 integer core + M2 structured control flow with the Memory section, i32.store, memory.size, and memory.grow. NO loads, NO Data segments, NO i64/narrow stores, NO globals/calls/tables/imports, NO validation execution, NO floats (those stay deferred). Additive to M0/M1/M2: manifest_m0.json and manifest_m2.json are NOT modified by this milestone.",
+  "inherits_pin_from": "manifest_m0.json",
+  "spec": {
+    "repo": "https://github.com/WebAssembly/spec",
+    "commit": "82cd4f9555dbf80b20611d8d3a2c6e6f444b228c",
+    "test_core_dir": "test/core",
+    "role": "SEMANTIC ORACLE (authoritative). SAME frozen pin as M0/M1/M2; we author no expected outputs. The `expected` values (and assert_trap `text`) in the converted JSON were authored by the reference interpreter."
+  },
+  "wabt": {
+    "repo": "https://github.com/WebAssembly/wabt",
+    "role": "TOOLCHAIN ONLY (wast2json / wasm2wat / wasm-objdump). NOT the semantic oracle.",
+    "tag": "1.0.41"
+  },
+  "conversion": {
+    "tool": "wast2json",
+    "disable_features": ["simd", "bulk-memory", "reference-types"],
+    "features_note": "IDENTICAL guardrail to manifest_m0.json / manifest_m2.json (same converted data discipline). Under --disable-bulk-memory, memory.wast / data.wast / align.wast REJECT at conversion at pin 82cd4f9 (bulk-memory / passive-data-segment syntax) -- that is why those obvious 'memory' files are NOT M3 targets. f32/f64 are MVP-core and cannot be disabled by any flag, so integer-value purity is enforced by MANIFEST CURATION (see targets/excluded), not by conversion flags."
+  },
+  "targets": [
+    { "name": "store.wast", "upstream_path": "test/core/store.wast" },
+    { "name": "memory_size.wast", "upstream_path": "test/core/memory_size.wast" }
+  ],
+  "targets_note": "Integer-value-clean, linear-memory-bearing files whose instantiated modules use ONLY sections {Type,Function,Export,Code,Memory}, opcodes in the M1 integer set + the M2 control-flow set + {i32.store, memory.size, memory.grow}, and memory limits in {min-only, min+max}; no load/Data/i64-store/narrow-store/global/table/call/float. Selected FROM DATA (a read-only probe converting every memory-bearing candidate under the guardrail flags above and measuring module float purity + sections/opcodes/limits via wasm-objdump; a confirming sweep over all 97 test/core files found NO other integer-pure MVP-memory file). Evidence: goal-runs/m3-linear-memory/scope.txt. Coverage: store.wast -> i32.store executing inside block/loop/if/else/br/br_if/br_table/return (memory declaration + in-bounds store, no trap); memory_size.wast -> memory.size / memory.grow page-and-limit arithmetic across invokes, INCLUDING grow-past-declared-max failure (the (memory 0 2) module's grow 3 / grow 4 are REFUSED; because the exported grow drops memory.grow's -1 result, the oracle observes the refusal only via the FOLLOWING memory.size asserts showing the page count unchanged -- the -1 return value itself is unit-tested, not oracle-checked). Neither target contains a Data section, an assert_trap, or a load opcode -- so loads, data-segment init, and out-of-bounds traps are DEFERRED (the OOB trap path is implemented for i32.store correctness and unit-tested, its trap string read from the oracle JSON of memory_grow/memory_trap, but no in-scope target exercises it).",
+  "excluded": [
+    {
+      "names": ["memory.wast", "data.wast", "align.wast"],
+      "present_at_commit": true,
+      "reason": "REJECT AT CONVERSION under the guardrail flags (--disable-bulk-memory): at pin 82cd4f9 these use bulk-memory / passive-data-segment syntax. Genuinely out of MVP-linear-memory scope. Excluded explicitly (not silently skipped); revisit at a bulk-memory milestone."
+    },
+    {
+      "names": ["address.wast", "endianness.wast", "memory_redundancy.wast", "float_memory.wast", "memory_trap.wast"],
+      "present_at_commit": true,
+      "reason": "HAS-FLOAT: the instantiated modules mix f32/f64 load/store into the same bodies (and carry f32/f64 assert operands), failing the body/operand integer-purity discipline. memory_trap.wast is where out-of-bounds traps live, but it is float-contaminated. Outside M3 integer-value scope. Excluded explicitly; revisit with floats (M5)."
+    },
+    {
+      "names": ["load.wast", "memory_grow.wast"],
+      "present_at_commit": true,
+      "reason": "Need Global/Table/Elem(/Import) sections plus call / call_indirect / select -- their instantiated modules test load/grow embedded in call/table/global machinery. Outside M3's memory-only scope. Excluded explicitly; the i32.store OPCODE is still exercised (by store.wast) and memory.size/grow by memory_size.wast. Revisit with the calls/globals/tables milestones. (Canonical trap text 'out of bounds memory access' is read from these files' converted JSON for the i32.store bounds check, without adopting the files as targets.)"
+    },
+    {
+      "names": ["inline-module.wast"],
+      "present_at_commit": true,
+      "reason": "Integer-pure and sections in-scope, but declares (memory 0) with ZERO memory opcodes and ZERO value assertions (1 module command only) -- it tests inline-module SYNTAX, not linear-memory SEMANTICS, and its (memory 0) shape is already covered by memory_size.wast. Excluded to keep M3 targets semantically memory-bearing."
+    }
+  ]
+}

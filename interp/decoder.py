@@ -1,10 +1,13 @@
-"""decoder.py — WASM binary decoder scoped to the M1 sections {Type, Function, Export, Code}.
+"""decoder.py — WASM binary decoder scoped to {Type, Function, Memory, Export, Code} (M1→M3).
 
-Derived from goal-runs/m1-scope.txt: the 22 instantiated target modules use ONLY these 4
-binary sections and 71 integer opcodes. This decoder implements exactly that scope. Anything
-outside it — an unknown section id, a non-integer value type, a non-func export, or an opcode
-byte not in OPCODES — raises Unsupported (never silently accepted or mis-decoded), consistent
-with M0's no-silent-skip invariant.
+Derived from the frozen scope evidence: M1 (goal-runs/m1-scope.txt) uses sections
+{Type,Function,Export,Code} + 71 integer opcodes; M2 adds structured-control-flow opcodes; M3
+(goal-runs/m3-linear-memory/scope.txt) adds the Memory section + {i32.store, memory.size,
+memory.grow}. This decoder implements exactly that scope. Anything outside it — an unknown section
+id (incl. the Data section, deferred), a non-integer value type, a non-func export, an unsupported
+memory-limits flag, or an opcode byte not in OPCODES (incl. all loads and the wider/narrow stores)
+— raises Unsupported (never silently accepted or mis-decoded), consistent with M0's no-silent-skip
+invariant.
 
 Instruction decode is verified against the pinned WABT `wasm-objdump -d` disassembly by
 tests/decoder_selftest.py, so the opcode byte table is checked against the authoritative
@@ -32,6 +35,9 @@ IMM_NONE, IMM_S32, IMM_S64, IMM_U32 = "none", "s32", "s64", "u32"
 # M2 structured-control-flow immediates: a block signature (block/loop/if) and a br_table's
 # target vector + default label.
 IMM_BLOCKTYPE, IMM_BRTABLE = "blocktype", "brtable"
+# M3 linear-memory immediates: a memarg (align exponent + static offset) for i32.store, and a
+# reserved memidx byte for memory.size/memory.grow (MVP single memory: the byte must be 0x00).
+IMM_MEMARG, IMM_MEMIDX = "memarg", "memidx"
 
 # opcode byte -> (mnemonic, immediate-kind), for the enumerated integer opcodes plus the M2
 # structured-control-flow set (nop/block/loop/if/else/br/br_if/br_table/drop) and local.set.
@@ -51,6 +57,16 @@ OPCODES: dict[int, tuple[str, str]] = {
     0x0E: ("br_table", IMM_BRTABLE),
     0x1A: ("drop", IMM_NONE),
     0x21: ("local.set", IMM_U32),
+    # M3 linear memory (data-derived from goal-runs/m3-linear-memory/scope.txt: store.wast uses
+    # i32.store; memory_size.wast uses memory.size + memory.grow). Loads (0x28-0x35), i64.store, and
+    # the narrow stores (0x37-0x3E) are DEFERRED — no integer-pure target at pin 82cd4f9 exercises
+    # them, so they stay OUT of this table and the decoder raises Unsupported on their bytes
+    # (fail-closed). 0x40 is BOTH the empty block-type byte (read only as a block/loop/if immediate
+    # by _blocktype) AND the memory.grow opcode byte (read only by the top-level instruction loop) —
+    # the two decode sites are disjoint, so there is no collision (proven by the M2+M3 self-tests).
+    0x36: ("i32.store", IMM_MEMARG),
+    0x3F: ("memory.size", IMM_MEMIDX),
+    0x40: ("memory.grow", IMM_MEMIDX),
     # M1 integer core (unchanged)
     0x0B: ("end", IMM_NONE),
     0x0F: ("return", IMM_NONE),
@@ -94,10 +110,12 @@ OPCODES: dict[int, tuple[str, str]] = {
     0xC4: ("i64.extend32_s", IMM_NONE),
 }
 
-# Section ids in scope. Others (Import=2, Table=4, Memory=5, Global=6, Start=8, Element=9,
-# Data=11, DataCount=12, Custom=0) are Unsupported for M1.
-SEC_TYPE, SEC_FUNCTION, SEC_EXPORT, SEC_CODE = 1, 3, 7, 10
-SECTION_NAMES = {SEC_TYPE: "Type", SEC_FUNCTION: "Function", SEC_EXPORT: "Export", SEC_CODE: "Code"}
+# Section ids in scope. M3 adds Memory (5). Others (Import=2, Table=4, Global=6, Start=8,
+# Element=9, Data=11, DataCount=12, Custom=0) remain Unsupported (fail-closed) — the Data section in
+# particular is DEFERRED: no integer-pure M3 target declares a data segment.
+SEC_TYPE, SEC_FUNCTION, SEC_MEMORY, SEC_EXPORT, SEC_CODE = 1, 3, 5, 7, 10
+SECTION_NAMES = {SEC_TYPE: "Type", SEC_FUNCTION: "Function", SEC_MEMORY: "Memory",
+                 SEC_EXPORT: "Export", SEC_CODE: "Code"}
 
 
 @dataclass
@@ -107,6 +125,8 @@ class Instr:
     bt: list[str] | None = None          # block/loop/if result value-types (block signature)
     targets: list[int] | None = None     # br_table target label vector
     default: int | None = None           # br_table default label
+    align: int | None = None             # memarg alignment exponent (i32.store) — a HINT, not a bound
+    offset: int | None = None            # memarg static offset (i32.store)
 
 
 @dataclass
@@ -128,6 +148,8 @@ class Module:
     func_typeidx: list[int] = field(default_factory=list)   # Function section: func -> typeidx
     funcs: list[Func] = field(default_factory=list)          # Code section, aligned with func_typeidx
     exports: dict[str, int] = field(default_factory=dict)    # export name -> funcidx (funcs only)
+    mems: list[tuple[int, int | None]] = field(default_factory=list)  # Memory section: (min, max) pages
+    mem: object = None            # runtime linear memory (machine.Memory), attached by instantiate()
 
 
 class _Reader:
@@ -212,6 +234,34 @@ def _decode_function_section(r: _Reader, m: Module) -> None:
         m.func_typeidx.append(r.uleb())
 
 
+def _decode_limits(r: _Reader) -> tuple[int, int | None]:
+    """Decode a `limits` (memory type): a flags byte then min (u32) and, if flags bit 0, max (u32).
+    MVP admits ONLY 0x00 (min) and 0x01 (min,max). 0x03 (shared/threads), 0x04/0x05 (memory64), and
+    any other flag are out of M3 scope -> Unsupported (fail-closed, no silent accept)."""
+    flags = r.byte()
+    if flags == 0x00:
+        return r.uleb(), None
+    if flags == 0x01:
+        mn = r.uleb()
+        mx = r.uleb()
+        return mn, mx
+    if flags == 0x03:
+        raise Unsupported("shared memory (threads) limits flag 0x03 (out of M3 scope)")
+    if flags in (0x04, 0x05):
+        raise Unsupported(f"memory64 limits flag 0x{flags:02x} (out of M3 scope)")
+    raise Unsupported(f"unknown/reserved memory limits flag 0x{flags:02x}")
+
+
+def _decode_memory_section(r: _Reader, m: Module) -> None:
+    """Memory section = vec(limits). MVP allows AT MOST ONE memory; >1 is the multi-memory proposal
+    (out of M3 scope) -> Unsupported."""
+    count = r.uleb()
+    if count > 1:
+        raise Unsupported(f"multi-memory ({count} memories) — MVP allows at most one (out of M3 scope)")
+    for _ in range(count):
+        m.mems.append(_decode_limits(r))
+
+
 def _decode_export_section(r: _Reader, m: Module) -> None:
     for _ in range(r.uleb()):
         name = r.bytes(r.uleb()).decode("utf-8")
@@ -248,6 +298,15 @@ def _decode_instrs(r: _Reader, end: int) -> list[Instr]:
             n = r.uleb()
             tgts = [r.uleb() for _ in range(n)]
             body.append(Instr(op, targets=tgts, default=r.uleb()))
+        elif imm_kind == IMM_MEMARG:            # align exponent + static offset (both u32)
+            align = r.uleb()
+            offset = r.uleb()
+            body.append(Instr(op, align=align, offset=offset))
+        elif imm_kind == IMM_MEMIDX:            # reserved memory index byte; MVP single memory -> 0x00
+            idx = r.byte()
+            if idx != 0x00:
+                raise Unsupported(f"non-zero memory index {idx} for {op} (multi-memory out of M3 scope)")
+            body.append(Instr(op))
         else:                                   # unreachable
             raise DecodeError(f"bad immediate kind {imm_kind}")
     if r.p != end:
@@ -296,6 +355,8 @@ def decode(data: bytes) -> Module:
             _decode_type_section(r, m)
         elif sec_id == SEC_FUNCTION:
             _decode_function_section(r, m)
+        elif sec_id == SEC_MEMORY:
+            _decode_memory_section(r, m)
         elif sec_id == SEC_EXPORT:
             _decode_export_section(r, m)
         elif sec_id == SEC_CODE:
