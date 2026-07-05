@@ -105,8 +105,8 @@ python tests/positive_control.py        # prove the comparator FAILS on a wrong 
 python scripts/run_m1.py                # -> build/report/m1_summary.json (nonzero on any FAIL)
 ```
 
-Validation (`assert_invalid` / `assert_malformed`), linear memory, and floats remain out of scope
-and are deferred to later milestones (M3–M5); structured control flow is M2, below.
+Validation (`assert_invalid` / `assert_malformed`) and floats remain out of scope and are deferred
+to later milestones (M4–M5); structured control flow is M2 and linear memory is M3, below.
 
 ## M2 — Structured Control Flow (implemented)
 
@@ -157,3 +157,58 @@ M2 claims exactly this and no more: an integer interpreter that executes structu
 over two data-selected `test/core` files and matches the reference-interpreter oracle on every
 in-scope assertion. It is **not** a conformance-complete WebAssembly implementation — memory,
 validation, floats, calls, and the many control-flow files that require them remain out of scope.
+
+## M3 — Linear Memory (implemented)
+
+M3 extends the interpreter to **linear memory** — the **Memory** section (min/max page limits),
+`i32.store` (little-endian, with an out-of-bounds trap), `memory.size`, and `memory.grow` — and
+**nothing else**: no loads, no data segments, no `i64`/narrow stores, no globals/calls/tables, no
+validation execution, no floats.
+
+**The targets were, again, a curation problem resolved by data.** Linear memory is where `test/core`
+mixes concerns most: `memory.wast` / `data.wast` / `align.wast` *fail conversion* under the frozen
+`--disable-bulk-memory` guardrail (bulk-memory / passive-data syntax at the pin); `address`,
+`endianness`, `memory_redundancy`, `float_memory`, and `memory_trap` carry `f32`/`f64` load/store in
+the same modules; `load` and `memory_grow` pull in `Global`/`Table`/`Elem`(/`Import`) sections plus
+`call`/`select`. A read-only probe over **all 97** `test/core` files found exactly **two** that are
+integer-value-clean, stay inside `{Type,Function,Export,Code,Memory}`, and exercise real memory
+semantics: **`store.wast`** (`i32.store` inside every control construct) and **`memory_size.wast`**
+(`memory.size`/`memory.grow` page-and-limit arithmetic across four memories, including grow-past-max
+failure). They are frozen in a new `manifest_m3.json`; `manifest_m0.json` and `manifest_m2.json` are
+untouched. The **fail-closed** Step-0 enumerator (`tools/enumerate_m3_scope.py`) uses an *asymmetric*
+predicate — it admits exactly `i32.store`/`memory.size`/`memory.grow` + the Memory section while
+still *exiting nonzero* on any load, wider/narrow store, `memory.*` beyond size/grow, Data section,
+or float/call/global/table — and a built-in self-check proves that ban actually fires.
+
+The decoder gains the Memory section (limits flags restricted to `0x00`/`0x01`; shared/`memory64`
+⇒ `Unsupported`) and the three opcodes with their memarg/memidx immediates; all loads and the wider
+stores stay `Unsupported` (fail-closed). The interpreter (`interp/machine.py`) gains a per-instance
+page-granular `bytearray` memory, allocated at `instantiate()` and persisted across invokes;
+`i32.store` writes 4 little-endian bytes with an effective-address bounds check that traps
+`out of bounds memory access` (the spec-canonical string, read from the upstream oracle — no in-scope
+target triggers it, so it is proven by `tests/test_memory.py`); `memory.grow` zero-extends within the
+declared max (or the memory32 engine cap) and returns the previous page count or −1.
+
+Result over the 2 targets (110 commands): every in-scope linear-memory assertion matches the oracle
+— **PASS=45, FAIL=0**, with **UNSUPPORTED=60** (the `assert_invalid` / `assert_malformed` validation
+commands, reported with a count, not skipped) and 5 modules instantiated.
+`modules + PASS + FAIL + UNSUPPORTED == 110`: nothing dropped. A comparator positive control
+(`tests/positive_control_m3.py`) feeds a deliberately wrong `expected` on a real `memory.size`
+assertion and confirms `FAIL` fires. M1 and M2 are not regressed: `scripts/run_m1.py` still reports
+`PASS=877, FAIL=0, UNSUPPORTED=136` and `scripts/run_m2.py` still `PASS=51, FAIL=0, UNSUPPORTED=4`.
+
+```sh
+python scripts/convert.py --manifest manifest_m3.json \
+    --report build/report/conversion_report_m3.json     # -> build/converted/{store,memory_size}/*
+python tools/enumerate_m3_scope.py       # FAIL-CLOSED scope gate -> goal-runs/m3-linear-memory/scope.txt
+python tests/decoder_selftest.py --manifest manifest_m3.json   # decoder vs wasm-objdump (store/memory_size)
+python tests/test_memory.py              # linear-memory semantics units (store LE, size/grow, OOB, fresh mem)
+python tests/positive_control_m3.py      # prove the comparator FAILS on a wrong expected
+python scripts/run_m3.py                 # -> build/report/m3_summary.json (nonzero on any FAIL)
+```
+
+M3 claims exactly this and no more: an integer interpreter that executes a **minimal, data-selected
+subset** of linear memory (store + size/grow) over two `test/core` files and matches the
+reference-interpreter oracle on every in-scope assertion. It is **not** a conformance-complete
+WebAssembly implementation — loads, data segments, validation, floats, calls, and the many memory
+files that require them remain out of scope, deferred to later milestones.

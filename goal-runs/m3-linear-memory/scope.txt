@@ -1,0 +1,75 @@
+M3 SCOPE — enumerated from real data (instantiated modules of the M3 targets), FAIL-CLOSED
+==============================================================================
+spec commit : 82cd4f9555dbf80b20611d8d3a2c6e6f444b228c
+wabt        : 1.0.41 (wasm-objdump; authoritative disassembler)
+targets     : store.wast, memory_size.wast
+modules enumerated (type==module instances): 5
+method      : wasm-objdump -h (sections) + -d (opcodes + memarg/memidx immediates) +
+              -x (memory limits) over the instantiated module set. Read from the
+              disassembler, not guessed. Deterministic: sorted; re-run is byte-identical.
+
+BINARY SECTIONS PRESENT (decoder scope) — 5 distinct:
+    Code         in: memory_size.wast, store.wast
+    Export       in: memory_size.wast, store.wast
+    Function     in: memory_size.wast, store.wast
+    Memory       in: memory_size.wast, store.wast
+    Type         in: memory_size.wast, store.wast
+
+MEMORY LIMITS PRESENT (min[, max] pages) — 4:
+    initial=0
+    initial=0 max=2
+    initial=1
+    initial=3 max=8
+
+INSTRUCTION OPCODES PRESENT (interpreter scope) — 15 distinct:
+    opcode                 occurrences  #modules
+    block                            5         1
+    br                               1         1
+    br_if                            2         1
+    br_table                         1         1
+    drop                             4         4
+    else                             1         1
+    end                             25         5
+    i32.const                       23         1
+    i32.store                        9         1
+    if                               2         1
+    local.get                        4         4
+    loop                             1         1
+    memory.grow                      4         4
+    memory.size                      4         4
+    return                           1         1
+
+MEMARG IMMEDIATES (align-exponent, offset) — 1:
+    i32.store align=2 offset=0
+MEMIDX IMMEDIATES (reserved; MVP must be 0) — 2:
+    memory.grow memidx=0
+    memory.size memidx=0
+
+COMMAND-TYPE INVENTORY (2 files, 110 commands):
+    assert_invalid          53
+    assert_malformed         7
+    assert_return           45
+    module                   5
+
+DISTINCT INVOKED EXPORT FIELDS (value asserts + actions): 11
+
+PER-FILE PROVENANCE:
+  store.wast       modules= 1  sections=['Code', 'Export', 'Function', 'Memory', 'Type']
+                   limits=['initial=1']
+                   opcodes=['block', 'br', 'br_if', 'br_table', 'else', 'end', 'i32.const', 'i32.store', 'if', 'loop', 'return']
+  memory_size.wast modules= 4  sections=['Code', 'Export', 'Function', 'Memory', 'Type']
+                   limits=['initial=0', 'initial=0 max=2', 'initial=1', 'initial=3 max=8']
+                   opcodes=['drop', 'end', 'local.get', 'memory.grow', 'memory.size']
+
+SCOPE FINDINGS (linear-memory milestone):
+  memory opcodes present: ['i32.store', 'memory.grow', 'memory.size']
+  load opcodes present (must be NONE for M3): NONE
+  non-i32.store store opcodes (must be NONE): NONE
+  float opcodes present (must be NONE): NONE
+  call opcodes present (must be NONE): NONE
+  Data section present (must be NONE for M3): NONE
+
+SCOPE GATE (fail-closed; asymmetric allow-set + residual bans; self-check passed):
+  VERDICT: IN SCOPE — sections ⊆ {Type,Function,Export,Code,Memory}; opcodes ⊆ frozen
+           M3 set; loads/non-i32-stores/non-size-grow-memory/float/call/Data = NONE;
+           ≥1 memory opcode present. Decoder work unblocked.
