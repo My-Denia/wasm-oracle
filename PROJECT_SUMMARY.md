@@ -113,6 +113,8 @@ On Linux or WSL, from the repository root:
 ```sh
 python scripts/fetch_oracle.py
 python scripts/convert.py
+python scripts/convert.py --manifest manifest_m2.json --report build/report/conversion_report_m2.json
+python scripts/convert.py --manifest manifest_m3.json --report build/report/conversion_report_m3.json
 python scripts/run_skeleton.py
 python scripts/run_m1.py
 python scripts/run_m2.py
@@ -126,13 +128,20 @@ asset is `linux-x64`. That includes conversion, scope enumeration,
 `decoder_selftest.py`, and `body_purity_check.py`. The milestone runners are
 pure Python once converted artifacts exist.
 
-Useful scope checks:
+Useful scope checks, run from the repository root inside Linux or WSL:
 
 ```sh
-wsl.exe -e bash -lc 'cd /mnt/c/Files/wasm-oracle && python3 tools/enumerate_m1_scope.py && git diff --exit-code -- goal-runs/m1-scope.txt'
-wsl.exe -e bash -lc 'cd /mnt/c/Files/wasm-oracle && python3 tools/enumerate_m2_scope.py && git diff --exit-code -- goal-runs/m2-control-flow/scope.txt'
-wsl.exe -e bash -lc 'cd /mnt/c/Files/wasm-oracle && python3 tools/enumerate_m3_scope.py && git diff --exit-code -- goal-runs/m3-linear-memory/scope.txt'
-wsl.exe -e bash -lc 'cd /mnt/c/Files/wasm-oracle && python3 tools/enumerate_m4_validation_scope.py && git diff --exit-code -- goal-runs/m4-validation/scope.txt goal-runs/m4-validation/scope.json'
+python3 tools/enumerate_m1_scope.py && git diff --exit-code -- goal-runs/m1-scope.txt
+python3 tools/enumerate_m2_scope.py && git diff --exit-code -- goal-runs/m2-control-flow/scope.txt
+python3 tools/enumerate_m3_scope.py && git diff --exit-code -- goal-runs/m3-linear-memory/scope.txt
+python3 tools/enumerate_m4_validation_scope.py && git diff --exit-code -- goal-runs/m4-validation/scope.txt goal-runs/m4-validation/scope.json
+```
+
+If launching WSL commands from PowerShell instead, replace `<repo-wsl-path>`
+with the WSL path to your checkout:
+
+```sh
+wsl.exe -e bash -lc 'cd <repo-wsl-path> && python3 tools/enumerate_m1_scope.py && git diff --exit-code -- goal-runs/m1-scope.txt'
 ```
 
 ## Suggested Tag Or Release
