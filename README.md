@@ -215,11 +215,26 @@ reference-interpreter oracle on every in-scope assertion. It is **not** a confor
 WebAssembly implementation — loads, data segments, validation, floats, calls, and the many memory
 files that require them remain out of scope, deferred to later milestones.
 
-## M4 - Validation Execution (curation in progress)
+## M4 - Validation Execution (first curation-bounded slice)
 
-M4 starts with **validation command curation**, not a complete validator. The current pinned M1/M2/M3 converted data contains **200** validation assertions across the eight target files: 169 `assert_invalid` and 31 `assert_malformed`. The Step-0 enumerator (`tools/enumerate_m4_validation_scope.py`) inventories every one of them and writes deterministic evidence to `goal-runs/m4-validation/scope.txt` and `scope.json`.
+M4 now has a **first validator execution slice**, not a complete WebAssembly validator. Its input is
+strictly the merged M4 curation artifact: the current pinned M1/M2/M3 converted data contains
+**200** validation assertions across the eight target files: 169 `assert_invalid` and 31
+`assert_malformed`. The Step-0 enumerator (`tools/enumerate_m4_validation_scope.py`) inventories
+every one of them and writes deterministic evidence to `goal-runs/m4-validation/scope.txt` and
+`scope.json`.
 
-Current curation result: **65** binary `assert_invalid` modules are validator candidates because the current decoder parses them and their sections/opcodes stay inside the frozen M1-M3 implemented surface. The remaining **135** are still `UNSUPPORTED` with explicit reasons: text malformed WAT requires a WAT parser, or the binary uses deferred features such as floats, calls, tables/elem, globals, loads, wider/narrow stores, `select`, or `local.tee`.
+Current curation result: **65** binary `assert_invalid` modules are validator inputs because the
+current decoder parses them and their sections/opcodes stay inside the frozen M1-M3 implemented
+surface. `scripts/run_m4.py` validates only those 65 records and reports PASS only when
+`interp/validator.py` rejects the module with the category recorded in `scope.json` (`type mismatch`
+or `unknown label`). If an included module is accepted, or rejected for the wrong category, M4
+reports FAIL and exits nonzero.
+
+The remaining **135** validation assertions are still `UNSUPPORTED` with explicit reasons and are
+not decoded, validated, or reclassified as PASS: text malformed WAT requires a WAT parser, or the
+binary uses deferred features such as floats, calls, tables/elem, globals, loads, wider/narrow
+stores, `select`, or `local.tee`.
 
 This is a fail-closed gate, not a report-only probe:
 
@@ -227,6 +242,12 @@ This is a fail-closed gate, not a report-only probe:
 python tools/enumerate_m4_validation_scope.py
 python tools/validate_m4_goal_run.py --require-scope
 git diff --exit-code goal-runs/m4-validation/scope.txt goal-runs/m4-validation/scope.json
+python tests/test_validation.py
+python tests/positive_control_m4.py
+python scripts/run_m4.py              # -> build/report/m4_summary.json
 ```
 
-M4 currently makes **no full WebAssembly validation conformance claim**. Old runners keep their accounting unchanged; M1 remains `PASS=877, FAIL=0, UNSUPPORTED=136`, M2 remains `PASS=51, FAIL=0, UNSUPPORTED=4`, and M3 remains `PASS=45, FAIL=0, UNSUPPORTED=60`.
+M4 currently reports **PASS=65, FAIL=0, UNSUPPORTED=135** and makes **no full WebAssembly
+validation conformance claim**. Old runners keep their accounting unchanged; M1 remains
+`PASS=877, FAIL=0, UNSUPPORTED=136`, M2 remains `PASS=51, FAIL=0, UNSUPPORTED=4`, and M3 remains
+`PASS=45, FAIL=0, UNSUPPORTED=60`.

@@ -1,10 +1,10 @@
 {
   "milestone": "M4",
   "title": "Validation Execution",
-  "status": "curation-in-progress",
+  "status": "first-validator-slice",
   "baseline": {
     "branch": "main",
-    "commit": "627c7aa"
+    "commit": "aa9f3f3250597361c085aff649375f58a97396f1"
   },
   "risk": "medium",
   "audit_mode": "independent-subagents",
@@ -15,10 +15,20 @@
       "manifest_m3.json"
     ],
     "expected_total": 200,
+    "included": 65,
+    "unsupported": 135,
     "command_types": {
       "assert_invalid": 169,
       "assert_malformed": 31
     }
+  },
+  "validator_slice": {
+    "runner": "scripts/run_m4.py",
+    "validator": "interp/validator.py",
+    "input_scope": "goal-runs/m4-validation/scope.json",
+    "included_behavior": "PASS only when validator rejects with the category recorded in scope.json",
+    "unsupported_behavior": "135 deferred records remain UNSUPPORTED and are not decoded or validated",
+    "full_validation_conformance": false
   },
   "owner_boundaries": {
     "local_commit_requires_owner_approval": true,
@@ -31,14 +41,22 @@
     "plan_audit": {
       "mode": "independent-subagents",
       "decision": "needs-replan -> pass",
-      "note": "Replan added artifact schema check, 200-command accounting, explicit include/exclude policy, reject text allowlist, owner boundaries, and rollback."
+      "note": "Replan added explicit owner-only boundaries, rollback, and a test that deferred M4 records remain unsupported and unvalidated."
+    },
+    "validator_execution": {
+      "expected": "PASS=65 FAIL=0 UNSUPPORTED=135",
+      "commands": [
+        "python tests/test_validation.py",
+        "python tests/positive_control_m4.py",
+        "python scripts/run_m4.py"
+      ]
     },
     "baseline": {
-      "m0": "passed locally before M4 edits",
+      "m0": "supported=0 unsupported=1035",
       "m1": "PASS=877 FAIL=0 UNSUPPORTED=136",
       "m2": "PASS=51 FAIL=0 UNSUPPORTED=4",
       "m3": "PASS=45 FAIL=0 UNSUPPORTED=60"
     }
   },
-  "rollback": "Remove or revert M4-only files, regenerate scope evidence if needed, and rerun M0-M3 gates."
+  "rollback": "Revert only this agent's local edits after reviewing git diff; preserve user/unrelated changes; no commit/push/PR without owner approval."
 }
