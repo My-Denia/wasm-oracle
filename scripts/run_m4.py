@@ -101,8 +101,7 @@ def evaluate_record(record: dict[str, Any]) -> RecordOutcome:
     if not artifact.exists():
         return RecordOutcome("FAIL", f"artifact missing: {artifact.relative_to(ROOT)}")
     try:
-        module = dec.decode(artifact.read_bytes())
-        val.validate_module(module)
+        val.validate_bytes(artifact.read_bytes())
     except val.ValidationError as e:
         if e.category == expected_category:
             return RecordOutcome("PASS", str(e), actual_category=e.category)

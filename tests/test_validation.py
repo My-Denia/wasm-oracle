@@ -22,6 +22,31 @@ CONVERTED = ROOT / "build" / "converted"
 SOURCE_MANIFESTS = ("manifest_m0.json", "manifest_m2.json", "manifest_m3.json")
 
 
+def uleb(value):
+    out = []
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        if value:
+            out.append(byte | 0x80)
+        else:
+            out.append(byte)
+            return bytes(out)
+
+
+def section(section_id, payload):
+    return bytes([section_id]) + uleb(len(payload)) + payload
+
+
+def duplicate_export_module_bytes():
+    type_section = section(1, b"\x01\x60\x00\x00")
+    function_section = section(3, b"\x01\x00")
+    export_payload = b"\x02" + b"\x01f\x00\x00" + b"\x01f\x00\x00"
+    export_section = section(7, export_payload)
+    code_section = section(10, b"\x01\x02\x00\x0b")
+    return b"\x00asm" + (1).to_bytes(4, "little") + type_section + function_section + export_section + code_section
+
+
 def C32(v=0):
     return dec.Instr("i32.const", v)
 
@@ -134,6 +159,23 @@ class ValidatorUnits(unittest.TestCase):
     def test_store_needs_two_i32_operands(self):
         assert_invalid_category(self, module_for([C32(0), STORE, END], mem=True), V.TYPE_MISMATCH)
 
+    def test_memory_limits_validate(self):
+        V.validate_module(module_for([END], mem=True))
+        for mem in [(-1, None), (65537, None), (2, 1), (0, 65537)]:
+            m = module_for([END])
+            m.mems = [mem]
+            assert_invalid_category(self, m, V.TYPE_MISMATCH)
+
+    def test_store_alignment_must_not_exceed_natural(self):
+        bad_store = dec.Instr("i32.store", align=3, offset=0)
+        assert_invalid_category(self, module_for([C32(0), C32(1), bad_store, END], mem=True),
+                                V.TYPE_MISMATCH)
+
+    def test_validate_bytes_rejects_duplicate_exports(self):
+        with self.assertRaises(V.ValidationError) as cm:
+            V.validate_bytes(duplicate_export_module_bytes())
+        self.assertEqual(cm.exception.category, V.TYPE_MISMATCH)
+
 
 class ScopeIntegration(unittest.TestCase):
     @classmethod
@@ -155,8 +197,7 @@ class ScopeIntegration(unittest.TestCase):
                 continue
             artifact = CONVERTED / Path(record["source_file"]).stem / record["module_filename"]
             try:
-                module = dec.decode(artifact.read_bytes())
-                V.validate_module(module)
+                V.validate_bytes(artifact.read_bytes())
             except V.ValidationError as e:
                 if e.category != record["category"]:
                     failures.append((record["validation_index"], e.category, record["category"], str(e)))
@@ -188,7 +229,7 @@ class ScopeIntegration(unittest.TestCase):
                     continue
                 artifact = CONVERTED / stem / cmd["filename"]
                 try:
-                    V.validate_module(dec.decode(artifact.read_bytes()))
+                    V.validate_bytes(artifact.read_bytes())
                     validated += 1
                 except Exception as e:  # pragma: no cover - kept for diagnostic quality
                     failures.append((target_name, cmd.get("line"), cmd["filename"], type(e).__name__, str(e)))

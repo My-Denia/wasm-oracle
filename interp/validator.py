@@ -13,6 +13,7 @@ from . import decoder as dec
 
 TYPE_MISMATCH = "validation_type_mismatch_existing_surface"
 UNKNOWN_LABEL = "branch_depth_or_unknown_label_existing_surface"
+MEMORY32_MAX_PAGES = 65536
 
 
 class ValidationError(Exception):
@@ -199,6 +200,8 @@ class _FuncValidator:
             return
         if op == "i32.store":
             self._require_memory(op)
+            if ins.align is None or ins.align > 2:
+                self._type_error("i32.store alignment exceeds natural alignment")
             self._pop("i32")
             self._pop("i32")
             return
@@ -272,10 +275,42 @@ def validate_module(module: dec.Module) -> None:
             raise ValidationError(TYPE_MISMATCH, f"export {name!r} function index {funcidx} out of range")
     if len(module.mems) > 1:
         raise ValidationError(TYPE_MISMATCH, "more than one memory")
+    for idx, (minimum, maximum) in enumerate(module.mems):
+        if minimum < 0 or minimum > MEMORY32_MAX_PAGES:
+            raise ValidationError(TYPE_MISMATCH, f"memory {idx} minimum out of bounds")
+        if maximum is not None and (maximum < minimum or maximum > MEMORY32_MAX_PAGES):
+            raise ValidationError(TYPE_MISMATCH, f"memory {idx} maximum out of bounds")
     for func in module.funcs:
         _FuncValidator(module, func).validate()
 
 
 def validate_bytes(data: bytes) -> None:
     """Decode and validate bytes in the current M1-M3 binary surface."""
+    _reject_duplicate_export_names(data)
     validate_module(dec.decode(data))
+
+
+def _reject_duplicate_export_names(data: bytes) -> None:
+    r = dec._Reader(data)
+    if r.bytes(4) != b"\x00asm":
+        raise dec.DecodeError("bad magic (not a WASM binary)")
+    version = int.from_bytes(r.bytes(4), "little")
+    if version != 1:
+        return
+    while not r.eof():
+        sec_id = r.byte()
+        sec_len = r.uleb()
+        sec_end = r.p + sec_len
+        if sec_id == dec.SEC_EXPORT:
+            seen: set[str] = set()
+            for _ in range(r.uleb()):
+                name = r.bytes(r.uleb()).decode("utf-8")
+                if name in seen:
+                    raise ValidationError(TYPE_MISMATCH, f"duplicate export name {name!r}")
+                seen.add(name)
+                r.byte()
+                r.uleb()
+        else:
+            r.bytes(sec_len)
+        if r.p != sec_end:
+            raise dec.DecodeError(f"section {sec_id} length mismatch")
