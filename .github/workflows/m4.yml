@@ -1,5 +1,5 @@
-# M4 Validation Curation CI (Linux).
-name: M4 Validation Curation
+# M4 Validation Execution CI (Linux).
+name: M4 Validation Execution
 
 on:
   push:
@@ -18,7 +18,7 @@ env:
   WASM_OBJDUMP: vendor/wabt/bin/wasm-objdump
 
 jobs:
-  validation-curation:
+  validation-execution:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +54,23 @@ jobs:
           assert t['unsupported'] > 0, 'curation failed to preserve unsupported cases'
           print(f"M4 curation assertions passed: included={t['included']} unsupported={t['unsupported']} total=200")
           PY
+      - name: M4 validator unit and scope tests
+        run: python tests/test_validation.py
+      - name: M4 validator positive control (accepted invalid or wrong category MUST classify FAIL)
+        run: python tests/positive_control_m4.py
+      - name: M4 validation execution gate
+        run: python scripts/run_m4.py
+      - name: Assert M4 validation execution counts
+        run: |
+          python - <<'PY'
+          import json
+          m4 = json.load(open('build/report/m4_summary.json', encoding='utf-8'))
+          t = m4['totals']
+          assert (t['PASS'], t['FAIL'], t['UNSUPPORTED']) == (65, 0, 135), t
+          assert t['PASS'] + t['FAIL'] + t['UNSUPPORTED'] == 200, t
+          assert m4['full_validation_conformance'] is False, m4
+          print('M4 validation execution counts locked: PASS=65 FAIL=0 UNSUPPORTED=135.')
+          PY
       - name: M0/M1/M2/M3 runner non-regression counts
         run: |
           python scripts/run_skeleton.py
@@ -76,8 +93,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m4-validation-curation
+          name: m4-validation-execution
           path: |
             goal-runs/m4-validation/scope.txt
             goal-runs/m4-validation/scope.json
             build/report/m4_scope.json
+            build/report/m4_summary.json
