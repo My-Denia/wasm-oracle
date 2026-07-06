@@ -1,13 +1,42 @@
-# wasm-oracle — a spec-conformant WebAssembly interpreter subset, verified against the official oracle
+# wasm-oracle - oracle-backed WebAssembly interpreter subset method demo
 
-This project builds a WebAssembly interpreter subset whose correctness is checked against an
-**external, authoritative oracle** that nobody here authored: the official
+This project is a **verification-before-implementation** demo, not a complete WebAssembly
+implementation. It builds a deliberately small interpreter and validator subset whose behavior is
+checked against an **external, authoritative oracle** that nobody here authored: the official
 [WebAssembly reference interpreter](https://github.com/WebAssembly/spec) and the official
-`test/core` conformance suite. The discipline is **verification-before-implementation** — the
-test scaffold is built and frozen *before* any interpreter semantics exist, so the interpreter
-is later forced to pass an oracle it cannot influence.
+`test/core` suite. The test scaffold is built and frozen *before* interpreter semantics exist, so
+later implementation work is forced to pass an oracle it cannot influence.
 
-## M0 — Oracle Harness (this milestone)
+For a standalone report-style overview, see [`PROJECT_SUMMARY.md`](PROJECT_SUMMARY.md).
+
+## Current demo status: M0-M4 complete
+
+M0-M4 now form a complete method demo: external oracle first, frozen manifests, data-gated scope,
+fail-closed enumerators, no-silent-skip accounting, positive controls, CI gates, and review-loop
+fixes. M4 is a good stopping point for demonstrating the method; further work such as calls,
+floats, globals, tables, broader memory behavior, or full validation would be product
+implementation beyond this demo boundary.
+
+| Milestone | Scope | Targets | Current result |
+| --- | --- | --- | --- |
+| M0 | Oracle harness only; no semantics | `i32.wast`, `i64.wast`, `int_exprs.wast`, `int_literals.wast` | `supported=0 unsupported=1035` |
+| M1 | Integer core | same four M0 targets | `PASS=877 FAIL=0 UNSUPPORTED=136` |
+| M2 | Structured control flow | `labels.wast`, `switch.wast` | `PASS=51 FAIL=0 UNSUPPORTED=4` |
+| M3 | Minimal linear memory | `store.wast`, `memory_size.wast` | `PASS=45 FAIL=0 UNSUPPORTED=60` |
+| M4 | Validation curation plus first validator execution slice | 200 validation assertions from the M0/M2/M3 manifests | `PASS=65 FAIL=0 UNSUPPORTED=135` |
+
+`UNSUPPORTED` is reported deliberately. It is not a hidden skip and not a failure; it is counted
+out-of-scope surface with reasons. The project only claims the surface proven by the frozen data and
+the current runner results.
+
+## What this does not claim
+
+This repository does not claim full WebAssembly conformance, full validation conformance, floating
+point support, calls or `call_indirect`, globals/imports/tables/start/element segments, loads, data
+segments, `i64` or narrow stores, bulk-memory, reference types, memory64, multi-memory, JIT/AOT
+behavior, or production performance.
+
+## M0 — Oracle Harness (complete)
 
 **M0 implements NO interpreter semantics and claims NO conformance.** M0 builds only the
 verification scaffold:
@@ -32,9 +61,9 @@ scripts/fetch_oracle.py   fetch spec@SHA (oracle) + WABT@release (toolchain), sh
 scripts/convert.py        wast2json over the manifest -> JSON + .wasm, per-file command counts
 scripts/run_skeleton.py   read JSON, classify every command, report UNSUPPORTED, machine summary
 tools/enumerate_m1_scope.py  M1 Step 0: enumerate real opcodes+sections -> goal-runs/m1-scope.txt
-interp/                   integer core + M2 control flow: decoder, values, machine (interpreter), runner
+interp/                   integer core + M2/M3 execution + M4 validation support
 scripts/run_m1.py         M1 assert-runner: execute the 4 targets, diff vs oracle, PASS/FAIL/UNSUPPORTED
-tests/                    gates: decoder self-test, semantics + control-flow units, comparator positive controls
+tests/                    gates: decoder self-test, semantics/control-flow/memory/validation units, positive controls
 .github/workflows/m0.yml  Linux CI: fetch/build oracle -> convert -> run skeleton -> assert
 .github/workflows/m1.yml  Linux CI: fetch -> convert -> purity gates -> M1 tests -> execution gate
 goal-runs/m1-scope.txt    committed evidence: the enumerated M1 opcode/section scope
@@ -42,6 +71,10 @@ manifest_m2.json          frozen: M2 targets (labels, switch) + reasoned exclusi
 tools/enumerate_m2_scope.py  M2 Step 0: FAIL-CLOSED scope gate -> goal-runs/m2-control-flow/scope.txt
 scripts/run_m2.py         M2 assert-runner: execute labels/switch, diff vs oracle (reuses run_m1.run_file)
 .github/workflows/m2.yml  Linux CI: fetch -> convert(m2) -> purity(m2) -> scope gate -> decoder/units/positive -> execution gate
+manifest_m3.json          frozen: M3 targets (store, memory_size) + reasoned exclusions
+tools/enumerate_m3_scope.py  M3 Step 0: FAIL-CLOSED memory scope gate -> goal-runs/m3-linear-memory/scope.txt
+scripts/run_m3.py         M3 assert-runner: execute store/memory_size, diff vs oracle
+.github/workflows/m3.yml  Linux CI: fetch -> convert(m3) -> purity(m3) -> scope gate -> memory/positive -> execution gate
 tools/enumerate_m4_validation_scope.py  M4 Step 0: FAIL-CLOSED validation curation -> goal-runs/m4-validation/scope.*
 .github/workflows/m4.yml  Linux CI: fetch -> convert M1/M2/M3 -> M4 validation curation + M1/M2/M3 count regression
 vendor/  build/           generated (gitignored): fetched oracle/toolchain, converted JSON, reports
