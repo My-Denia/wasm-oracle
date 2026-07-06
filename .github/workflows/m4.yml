@@ -1,0 +1,83 @@
+# M4 Validation Curation CI (Linux).
+name: M4 Validation Curation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m4-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WASM2WAT: vendor/wabt/bin/wasm2wat
+  WASM_OBJDUMP: vendor/wabt/bin/wasm-objdump
+
+jobs:
+  validation-curation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned spec and WABT
+        run: python scripts/fetch_oracle.py
+      - name: Convert M1/M2/M3 manifests
+        run: |
+          python scripts/convert.py
+          python scripts/convert.py --manifest manifest_m2.json --report build/report/conversion_report_m2.json
+          python scripts/convert.py --manifest manifest_m3.json --report build/report/conversion_report_m3.json
+      - name: Validate M4 goal-run skeleton
+        run: python tools/validate_m4_goal_run.py
+      - name: Re-derive M4 validation scope and prove committed evidence is reproducible
+        run: |
+          python tools/enumerate_m4_validation_scope.py
+          python tools/validate_m4_goal_run.py --require-scope
+          git diff --exit-code goal-runs/m4-validation/scope.txt goal-runs/m4-validation/scope.json \
+            || (echo 'm4 validation scope drifted from real data - re-run tools/enumerate_m4_validation_scope.py and commit' && exit 1)
+      - name: Assert M4 curation accounting
+        run: |
+          python - <<'PY'
+          import json
+          scope = json.load(open('goal-runs/m4-validation/scope.json', encoding='utf-8'))
+          t = scope['totals']
+          assert t['validation_assertions'] == 200, t
+          assert t['included'] + t['unsupported'] == 200, t
+          assert t['policy_violations'] == 0, t
+          assert t['included'] > 0, 'curation admitted no validator candidates'
+          assert t['unsupported'] > 0, 'curation failed to preserve unsupported cases'
+          print(f"M4 curation assertions passed: included={t['included']} unsupported={t['unsupported']} total=200")
+          PY
+      - name: M0/M1/M2/M3 runner non-regression counts
+        run: |
+          python scripts/run_skeleton.py
+          python scripts/run_m1.py
+          python scripts/run_m2.py
+          python scripts/run_m3.py
+          python - <<'PY'
+          import json
+          m0 = json.load(open('build/report/run_summary.json'))['totals']
+          m1 = json.load(open('build/report/m1_summary.json'))['totals']
+          m2 = json.load(open('build/report/m2_summary.json'))['totals']
+          m3 = json.load(open('build/report/m3_summary.json'))['totals']
+          assert (m0['supported'], m0['unsupported']) == (0, 1035), m0
+          assert (m1['PASS'], m1['FAIL'], m1['UNSUPPORTED']) == (877, 0, 136), m1
+          assert (m2['PASS'], m2['FAIL'], m2['UNSUPPORTED']) == (51, 0, 4), m2
+          assert (m3['PASS'], m3['FAIL'], m3['UNSUPPORTED']) == (45, 0, 60), m3
+          print('M0/M1/M2/M3 counts unchanged.')
+          PY
+      - name: Upload M4 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m4-validation-curation
+          path: |
+            goal-runs/m4-validation/scope.txt
+            goal-runs/m4-validation/scope.json
+            build/report/m4_scope.json

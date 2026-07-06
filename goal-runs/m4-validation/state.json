@@ -1,0 +1,44 @@
+{
+  "milestone": "M4",
+  "title": "Validation Execution",
+  "status": "curation-in-progress",
+  "baseline": {
+    "branch": "main",
+    "commit": "627c7aa"
+  },
+  "risk": "medium",
+  "audit_mode": "independent-subagents",
+  "validation_inventory": {
+    "source_manifests": [
+      "manifest_m0.json",
+      "manifest_m2.json",
+      "manifest_m3.json"
+    ],
+    "expected_total": 200,
+    "command_types": {
+      "assert_invalid": 169,
+      "assert_malformed": 31
+    }
+  },
+  "owner_boundaries": {
+    "local_commit_requires_owner_approval": true,
+    "push_requires_owner_approval": true,
+    "pull_request_requires_owner_approval": true,
+    "force_push_forbidden_without_explicit_owner_approval": true,
+    "merge_forbidden": true
+  },
+  "gates": {
+    "plan_audit": {
+      "mode": "independent-subagents",
+      "decision": "needs-replan -> pass",
+      "note": "Replan added artifact schema check, 200-command accounting, explicit include/exclude policy, reject text allowlist, owner boundaries, and rollback."
+    },
+    "baseline": {
+      "m0": "passed locally before M4 edits",
+      "m1": "PASS=877 FAIL=0 UNSUPPORTED=136",
+      "m2": "PASS=51 FAIL=0 UNSUPPORTED=4",
+      "m3": "PASS=45 FAIL=0 UNSUPPORTED=60"
+    }
+  },
+  "rollback": "Remove or revert M4-only files, regenerate scope evidence if needed, and rerun M0-M3 gates."
+}

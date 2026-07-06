@@ -42,6 +42,8 @@ manifest_m2.json          frozen: M2 targets (labels, switch) + reasoned exclusi
 tools/enumerate_m2_scope.py  M2 Step 0: FAIL-CLOSED scope gate -> goal-runs/m2-control-flow/scope.txt
 scripts/run_m2.py         M2 assert-runner: execute labels/switch, diff vs oracle (reuses run_m1.run_file)
 .github/workflows/m2.yml  Linux CI: fetch -> convert(m2) -> purity(m2) -> scope gate -> decoder/units/positive -> execution gate
+tools/enumerate_m4_validation_scope.py  M4 Step 0: FAIL-CLOSED validation curation -> goal-runs/m4-validation/scope.*
+.github/workflows/m4.yml  Linux CI: fetch -> convert M1/M2/M3 -> M4 validation curation + M1/M2/M3 count regression
 vendor/  build/           generated (gitignored): fetched oracle/toolchain, converted JSON, reports
 ```
 
@@ -212,3 +214,19 @@ subset** of linear memory (store + size/grow) over two `test/core` files and mat
 reference-interpreter oracle on every in-scope assertion. It is **not** a conformance-complete
 WebAssembly implementation — loads, data segments, validation, floats, calls, and the many memory
 files that require them remain out of scope, deferred to later milestones.
+
+## M4 - Validation Execution (curation in progress)
+
+M4 starts with **validation command curation**, not a complete validator. The current pinned M1/M2/M3 converted data contains **200** validation assertions across the eight target files: 169 `assert_invalid` and 31 `assert_malformed`. The Step-0 enumerator (`tools/enumerate_m4_validation_scope.py`) inventories every one of them and writes deterministic evidence to `goal-runs/m4-validation/scope.txt` and `scope.json`.
+
+Current curation result: **65** binary `assert_invalid` modules are validator candidates because the current decoder parses them and their sections/opcodes stay inside the frozen M1-M3 implemented surface. The remaining **135** are still `UNSUPPORTED` with explicit reasons: text malformed WAT requires a WAT parser, or the binary uses deferred features such as floats, calls, tables/elem, globals, loads, wider/narrow stores, `select`, or `local.tee`.
+
+This is a fail-closed gate, not a report-only probe:
+
+```sh
+python tools/enumerate_m4_validation_scope.py
+python tools/validate_m4_goal_run.py --require-scope
+git diff --exit-code goal-runs/m4-validation/scope.txt goal-runs/m4-validation/scope.json
+```
+
+M4 currently makes **no full WebAssembly validation conformance claim**. Old runners keep their accounting unchanged; M1 remains `PASS=877, FAIL=0, UNSUPPORTED=136`, M2 remains `PASS=51, FAIL=0, UNSUPPORTED=4`, and M3 remains `PASS=45, FAIL=0, UNSUPPORTED=60`.

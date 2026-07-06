@@ -1,0 +1,140 @@
+M4 VALIDATION SCOPE - Step 0 curation, FAIL-CLOSED
+========================================================================
+source manifests : manifest_m0.json, manifest_m2.json, manifest_m3.json
+validation total : 200 (expected 200)
+included         : 65
+unsupported      : 135
+policy violations: 0
+
+COMMAND TYPES:
+  assert_invalid                                    169
+  assert_malformed                                   31
+
+EXPECTED TEXTS:
+  assert_invalid::type mismatch                     168
+  assert_invalid::unknown label                       1
+  assert_malformed::unexpected token                  4
+  assert_malformed::unknown operator                 27
+
+DECODER OUTCOMES:
+  decoder_accept                                     65
+  text_artifact                                      31
+  unsupported                                       104
+
+DECISIONS:
+  INCLUDED                                           65
+  UNSUPPORTED                                       135
+
+CATEGORIES:
+  branch_depth_or_unknown_label_existing_surface      1
+  text_malformed_requires_wat_parser                 31
+  unsupported_feature_contamination                 104
+  validation_type_mismatch_existing_surface          64
+
+DEFERRED FEATURES:
+  calls                                              10
+  floats                                             74
+  globals                                             3
+  loads                                               3
+  local_tee                                           3
+  select                                              5
+  tables_elem_call_indirect                           5
+  wat_parser                                         31
+  wide_or_narrow_or_float_stores                     24
+
+PER-FILE:
+  i32.wast           total= 85 included= 40 unsupported= 45
+  i64.wast           total= 31 included=  4 unsupported= 27
+  int_exprs.wast     total=  0 included=  0 unsupported=  0
+  int_literals.wast  total= 20 included=  0 unsupported= 20
+  labels.wast        total=  3 included=  0 unsupported=  3
+  memory_size.wast   total=  2 included=  1 unsupported=  1
+  store.wast         total= 58 included= 19 unsupported= 39
+  switch.wast        total=  1 included=  1 unsupported=  0
+
+INCLUDED ASSERTIONS (future validator candidates):
+  #000 i32.wast           cmd=375 line= 444 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #001 i32.wast           cmd=376 line= 452 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #002 i32.wast           cmd=377 line= 461 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #003 i32.wast           cmd=378 line= 470 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #004 i32.wast           cmd=379 line= 479 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #005 i32.wast           cmd=380 line= 488 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #006 i32.wast           cmd=381 line= 497 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #007 i32.wast           cmd=382 line= 506 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #008 i32.wast           cmd=383 line= 515 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #012 i32.wast           cmd=387 line= 556 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #015 i32.wast           cmd=390 line= 583 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #017 i32.wast           cmd=392 line= 601 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #018 i32.wast           cmd=393 line= 611 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #019 i32.wast           cmd=394 line= 619 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #020 i32.wast           cmd=395 line= 627 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #021 i32.wast           cmd=396 line= 636 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #022 i32.wast           cmd=397 line= 645 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #023 i32.wast           cmd=398 line= 654 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #024 i32.wast           cmd=399 line= 663 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #025 i32.wast           cmd=400 line= 672 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #026 i32.wast           cmd=401 line= 681 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #027 i32.wast           cmd=402 line= 691 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #028 i32.wast           cmd=403 line= 701 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #029 i32.wast           cmd=404 line= 710 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #030 i32.wast           cmd=405 line= 719 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #031 i32.wast           cmd=406 line= 728 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #032 i32.wast           cmd=407 line= 737 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #033 i32.wast           cmd=408 line= 746 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #034 i32.wast           cmd=409 line= 755 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #035 i32.wast           cmd=410 line= 763 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #042 i32.wast           cmd=417 line= 837 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #043 i32.wast           cmd=418 line= 846 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #048 i32.wast           cmd=423 line= 891 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #049 i32.wast           cmd=424 line= 900 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #052 i32.wast           cmd=427 line= 927 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #053 i32.wast           cmd=428 line= 936 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #069 i32.wast           cmd=444 line= 963 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #070 i32.wast           cmd=445 line= 964 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #071 i32.wast           cmd=446 line= 965 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #072 i32.wast           cmd=447 line= 966 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #100 i64.wast           cmd=400 line= 472 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #101 i64.wast           cmd=401 line= 473 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #102 i64.wast           cmd=402 line= 474 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #103 i64.wast           cmd=403 line= 475 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #139 switch.wast        cmd= 27 line= 150 text='unknown label' category=branch_depth_or_unknown_label_existing_surface
+  #147 store.wast         cmd= 17 line= 112 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #156 store.wast         cmd= 26 line= 150 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #157 store.wast         cmd= 27 line= 159 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #158 store.wast         cmd= 28 line= 168 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #159 store.wast         cmd= 29 line= 178 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #160 store.wast         cmd= 30 line= 188 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #161 store.wast         cmd= 31 line= 198 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #162 store.wast         cmd= 32 line= 208 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #163 store.wast         cmd= 33 line= 218 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #164 store.wast         cmd= 34 line= 228 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #165 store.wast         cmd= 35 line= 238 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #166 store.wast         cmd= 36 line= 248 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #167 store.wast         cmd= 37 line= 258 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #168 store.wast         cmd= 38 line= 268 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #169 store.wast         cmd= 39 line= 278 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #170 store.wast         cmd= 40 line= 288 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #171 store.wast         cmd= 41 line= 298 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #172 store.wast         cmd= 42 line= 308 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #173 store.wast         cmd= 43 line= 317 text='type mismatch' category=validation_type_mismatch_existing_surface
+  #198 memory_size.wast   cmd= 40 line=  69 text='type mismatch' category=validation_type_mismatch_existing_surface
+
+UNSUPPORTED SUMMARY:
+    5 x requires deferred feature(s): calls
+    5 x requires deferred feature(s): calls, tables_elem_call_indirect
+   56 x requires deferred feature(s): floats
+   18 x requires deferred feature(s): floats, wide_or_narrow_or_float_stores
+    3 x requires deferred feature(s): globals
+    3 x requires deferred feature(s): loads
+    3 x requires deferred feature(s): local_tee
+    5 x requires deferred feature(s): select
+    6 x requires deferred feature(s): wide_or_narrow_or_float_stores
+   31 x text WAT malformed assertion; repository has no WAT parser
+
+FULL PER-COMMAND INVENTORY:
+  See goal-runs/m4-validation/scope.json records[].
+
+SCOPE GATE:
+  VERDICT: IN SCOPE FOR CURATION - all 200 validation assertions accounted for;
+           validator candidates are limited to decoder-accepted binary invalid modules
+           over the frozen M1-M3 surface; all other cases remain UNSUPPORTED.
