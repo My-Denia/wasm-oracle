@@ -284,3 +284,90 @@ M4 currently reports **PASS=65, FAIL=0, UNSUPPORTED=135** and makes **no full We
 validation conformance claim**. Old runners keep their accounting unchanged; M1 remains
 `PASS=877, FAIL=0, UNSUPPORTED=136`, M2 remains `PASS=51, FAIL=0, UNSUPPORTED=4`, and M3 remains
 `PASS=45, FAIL=0, UNSUPPORTED=60`.
+
+## M5 — Full test/core sweep (implemented)
+
+M5 pushes the sweep to **every** `test/core` `.wast` file at the frozen pin — no curation, no
+phasing. The sections above (status table, "What this does not claim", per-milestone scope locks)
+describe the M0–M4 state and are deliberately left unedited; this section extends them additively.
+
+M5 is implemented as a **separate engine package `interp5/`** (decoder / validator / machine /
+float core) plus new scripts (`convert_m5.py`, `run_m5.py`, `check_regression_m5.py`) and
+`manifest_m5.json`. Nothing from M0–M4 is modified — `interp/`, `tools/`, all prior manifests,
+scripts, tests, workflows and committed goal-run artifacts are byte-identical, and
+`scripts/check_regression_m5.py` re-runs the frozen pipeline asserting the locked counts
+(M0 `supported=0/unsupported=1035`, M1 `877/0/136`, M2 `51/0/4`, M3 `45/0/60`, M4 curation
+`200 = 65 + 135` with 0 policy violations and execution `65/0/135`) and that the tree stays
+additive-only. The separate package is load-bearing: M4's committed curation evidence is derived
+from what `interp.decoder` accepts, so extending `interp/` in place would drift frozen artifacts.
+
+**The pin and the guardrail flags did not move.** Same spec commit `82cd4f9…`, same WABT 1.0.41,
+same `--disable-simd --disable-bulk-memory --disable-reference-types`. Under them, **55 of the 97**
+`test/core` files convert; **42 are CONVERT-FAIL, recorded with the wast2json stderr as the
+reason** (reference-types/externref syntax, GC / typed function references, tail calls,
+multi-memory / memory64-era offsets, annotations, passive/bulk-memory segments, or binary-format
+tests newer than the pinned toolchain). That is a **contract boundary, not a capability claim**:
+the actual failure set is enumerated in `manifest_m5.json → expected_convert_fail` and
+`convert_m5.py` exits nonzero on any drift, in either direction.
+
+Result over the 55 convertible files — **18,149 commands, all classified, none dropped**:
+
+| bucket | count | meaning |
+| --- | --- | --- |
+| PASS | **17,053** | matches the oracle bitwise / byte-exact trap & rejection texts |
+| FAIL | **0** | zero deviations from the oracle remain |
+| UNSUPPORTED | **447** | exactly the text-format boundary (below), each with a reason |
+| modules instantiated | 605 | each one decoded → **validated** → instantiated |
+| registered / bare actions | 2 / 42 | cross-instance linking (memory_grow re-imports) |
+
+Per-file accounting identity `modules_ok + registered + actions_ok + PASS + FAIL + UNSUPPORTED ==
+total` is asserted for every file and globally. Results are identical on Windows and Linux (WSL).
+
+What the oracle actually exercised (fail-closed inventory, `build/report/m5_text_inventory.json` —
+an unenumerated judgment text is a nonzero exit at conversion, never a silent absorb):
+
+- `assert_return` 15,386 — bitwise i32/i64/f32/f64 incl. multi-value results and
+  `nan:canonical` / `nan:arithmetic` class checks;
+- `assert_malformed` (binary) 536 — byte-exact texts: `malformed UTF-8 encoding` ×528,
+  `unexpected end` ×3, `length out of bounds` ×2, `malformed section id`,
+  `function and code section have inconsistent lengths`,
+  `data count and data section have inconsistent lengths`;
+- `assert_invalid` (binary) 684 — byte-exact texts: `type mismatch` ×657, `unknown local` ×12,
+  `unknown label` ×4, `unknown function` ×3, `unknown table` / `unknown type` /
+  `constant expression required` / `start function` ×2 each;
+- `assert_trap` 433 — byte-exact texts: `out of bounds memory access` ×239, `unreachable` ×66,
+  `integer overflow` ×41, `invalid conversion to integer` ×40, `integer divide by zero` ×38,
+  `undefined element` ×9;
+- `assert_exhaustion` 13 (`call stack exhausted`) and `assert_uninstantiable` 1 (trapping start).
+
+The **447 UNSUPPORTED are exactly the 446 text-format `assert_malformed` + 1 text-format
+`assert_invalid`**: judging them needs a `.wat` text parser, and the method boundary here is
+"WABT converts; we never parse `.wast` text". Every **binary** assertion in the convertible corpus
+was judged.
+
+Honesty instruments, same discipline as M0–M4: the 605 oracle-valid modules are a **standing
+negative control** against validator over-rejection (a validator rejection of a corpus module
+counts FAIL, and the 684 binary `assert_invalid` press from the other side);
+`tests/positive_control_m5.py` proves every PASS-capable judgment class can emit FAIL (corrupted
+integer/float/NaN-class expectations run end-to-end through real corpus copies, wrong trap text,
+non-exhausting exhaustion, valid-claimed-invalid, wrong rejection texts, well-formed-claimed-
+malformed, cleanly-instantiable-claimed-uninstantiable, multi-value arity); the decoder is
+cross-checked against the pinned `wasm-objdump` over all 606 module binaries (19,925 opcode
+tokens); the float core is unit-verified against an independent exact-rational reference
+(including the correctly-rounded `i64→f32` cases where double rounding through binary64 would be
+wrong).
+
+M5 still makes **no full WebAssembly conformance claim**: the demonstrated surface is exactly the
+55-file convertible corpus under the frozen pin+flags, and the 42 + 447 boundaries above are
+recorded, enumerated, and machine-checked rather than absorbed.
+
+```sh
+python scripts/convert_m5.py                  # (after fetch_oracle.py) 55 ok / 42 CONVERT-FAIL, fail-closed inventories
+python tests/test_m5_floats.py                # float core vs independent Fraction reference
+python tests/test_m5_machine.py               # executor unit tests (multi-value, tables, lazy memory, exhaustion...)
+python tests/test_m5_validator.py             # validator unit tests (8 corpus texts + structural)
+python tests/test_m5_decoder_selftest.py      # decoder vs pinned wasm-objdump (Linux/WSL)
+python tests/positive_control_m5.py           # prove every judgment class can FAIL
+python scripts/run_m5.py                      # -> build/report/m5_summary.json (the account)
+python scripts/check_regression_m5.py         # frozen M0-M4 counts + additive-tree gate
+```

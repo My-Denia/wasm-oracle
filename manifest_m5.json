@@ -1,0 +1,510 @@
+{
+  "milestone": "M5",
+  "statement": "Full-surface sweep: push UNSUPPORTED across ALL test/core .wast files to the furthest point reachable under the FROZEN pin and FROZEN guardrail flags. Implemented by a NEW engine package interp5/ (decoder/validator/machine/floats) and NEW scripts (convert_m5.py, run_m5.py, check_regression_m5.py); NOTHING from M0-M4 is modified: manifest_m0/m2/m3.json, interp/, tools/, existing scripts, tests, workflows and committed goal-runs artifacts are all untouched, and their locked counts (M0 0/1035, M1 877/0/136, M2 51/0/4, M3 45/0/60, M4 65/0/135) must re-verify. A file that fails wast2json under the frozen flags is recorded CONVERT-FAIL with the tool stderr as reason (expected set enumerated below) - it is data, not an error. FAIL does not gate this milestone: every deviation from the oracle is recorded per-file with detail and kept.",
+  "inherits_pin_from": "manifest_m0.json",
+  "spec": {
+    "repo": "https://github.com/WebAssembly/spec",
+    "commit": "82cd4f9555dbf80b20611d8d3a2c6e6f444b228c",
+    "test_core_dir": "test/core",
+    "role": "SEMANTIC ORACLE (authoritative). SAME frozen pin as M0-M4; we author no expected outputs. The `expected` values and assert texts in the converted JSON were authored by the reference interpreter."
+  },
+  "wabt": {
+    "repo": "https://github.com/WebAssembly/wabt",
+    "role": "TOOLCHAIN ONLY (wast2json / wasm2wat / wasm-objdump). NOT the semantic oracle.",
+    "tag": "1.0.41"
+  },
+  "conversion": {
+    "tool": "wast2json",
+    "disable_features": [
+      "simd",
+      "bulk-memory",
+      "reference-types"
+    ],
+    "features_note": "IDENTICAL guardrail to manifest_m0/m2/m3.json - the flags are FROZEN. M5 does not enable anything: files whose syntax the pinned WABT 1.0.41 rejects under these flags (GC/function-references/tail-call/multi-memory/annotations/bulk-memory/reference-types/64-bit offsets) are CONVERT-FAIL by design and stay out of executable scope. Output paths are DISJOINT from the frozen toolchain: build/converted_m5/<stem>/ and build/report/m5_*.json only."
+  },
+  "targets": [
+    {
+      "name": "address.wast",
+      "upstream_path": "test/core/address.wast"
+    },
+    {
+      "name": "align.wast",
+      "upstream_path": "test/core/align.wast"
+    },
+    {
+      "name": "annotations.wast",
+      "upstream_path": "test/core/annotations.wast"
+    },
+    {
+      "name": "binary-leb128.wast",
+      "upstream_path": "test/core/binary-leb128.wast"
+    },
+    {
+      "name": "binary.wast",
+      "upstream_path": "test/core/binary.wast"
+    },
+    {
+      "name": "block.wast",
+      "upstream_path": "test/core/block.wast"
+    },
+    {
+      "name": "br.wast",
+      "upstream_path": "test/core/br.wast"
+    },
+    {
+      "name": "br_if.wast",
+      "upstream_path": "test/core/br_if.wast"
+    },
+    {
+      "name": "br_on_non_null.wast",
+      "upstream_path": "test/core/br_on_non_null.wast"
+    },
+    {
+      "name": "br_on_null.wast",
+      "upstream_path": "test/core/br_on_null.wast"
+    },
+    {
+      "name": "br_table.wast",
+      "upstream_path": "test/core/br_table.wast"
+    },
+    {
+      "name": "call.wast",
+      "upstream_path": "test/core/call.wast"
+    },
+    {
+      "name": "call_indirect.wast",
+      "upstream_path": "test/core/call_indirect.wast"
+    },
+    {
+      "name": "call_ref.wast",
+      "upstream_path": "test/core/call_ref.wast"
+    },
+    {
+      "name": "comments.wast",
+      "upstream_path": "test/core/comments.wast"
+    },
+    {
+      "name": "const.wast",
+      "upstream_path": "test/core/const.wast"
+    },
+    {
+      "name": "conversions.wast",
+      "upstream_path": "test/core/conversions.wast"
+    },
+    {
+      "name": "custom.wast",
+      "upstream_path": "test/core/custom.wast"
+    },
+    {
+      "name": "data.wast",
+      "upstream_path": "test/core/data.wast"
+    },
+    {
+      "name": "elem.wast",
+      "upstream_path": "test/core/elem.wast"
+    },
+    {
+      "name": "endianness.wast",
+      "upstream_path": "test/core/endianness.wast"
+    },
+    {
+      "name": "exports.wast",
+      "upstream_path": "test/core/exports.wast"
+    },
+    {
+      "name": "f32.wast",
+      "upstream_path": "test/core/f32.wast"
+    },
+    {
+      "name": "f32_bitwise.wast",
+      "upstream_path": "test/core/f32_bitwise.wast"
+    },
+    {
+      "name": "f32_cmp.wast",
+      "upstream_path": "test/core/f32_cmp.wast"
+    },
+    {
+      "name": "f64.wast",
+      "upstream_path": "test/core/f64.wast"
+    },
+    {
+      "name": "f64_bitwise.wast",
+      "upstream_path": "test/core/f64_bitwise.wast"
+    },
+    {
+      "name": "f64_cmp.wast",
+      "upstream_path": "test/core/f64_cmp.wast"
+    },
+    {
+      "name": "fac.wast",
+      "upstream_path": "test/core/fac.wast"
+    },
+    {
+      "name": "float_exprs.wast",
+      "upstream_path": "test/core/float_exprs.wast"
+    },
+    {
+      "name": "float_literals.wast",
+      "upstream_path": "test/core/float_literals.wast"
+    },
+    {
+      "name": "float_memory.wast",
+      "upstream_path": "test/core/float_memory.wast"
+    },
+    {
+      "name": "float_misc.wast",
+      "upstream_path": "test/core/float_misc.wast"
+    },
+    {
+      "name": "forward.wast",
+      "upstream_path": "test/core/forward.wast"
+    },
+    {
+      "name": "func.wast",
+      "upstream_path": "test/core/func.wast"
+    },
+    {
+      "name": "func_ptrs.wast",
+      "upstream_path": "test/core/func_ptrs.wast"
+    },
+    {
+      "name": "global.wast",
+      "upstream_path": "test/core/global.wast"
+    },
+    {
+      "name": "i32.wast",
+      "upstream_path": "test/core/i32.wast"
+    },
+    {
+      "name": "i64.wast",
+      "upstream_path": "test/core/i64.wast"
+    },
+    {
+      "name": "id.wast",
+      "upstream_path": "test/core/id.wast"
+    },
+    {
+      "name": "if.wast",
+      "upstream_path": "test/core/if.wast"
+    },
+    {
+      "name": "imports.wast",
+      "upstream_path": "test/core/imports.wast"
+    },
+    {
+      "name": "inline-module.wast",
+      "upstream_path": "test/core/inline-module.wast"
+    },
+    {
+      "name": "instance.wast",
+      "upstream_path": "test/core/instance.wast"
+    },
+    {
+      "name": "int_exprs.wast",
+      "upstream_path": "test/core/int_exprs.wast"
+    },
+    {
+      "name": "int_literals.wast",
+      "upstream_path": "test/core/int_literals.wast"
+    },
+    {
+      "name": "labels.wast",
+      "upstream_path": "test/core/labels.wast"
+    },
+    {
+      "name": "left-to-right.wast",
+      "upstream_path": "test/core/left-to-right.wast"
+    },
+    {
+      "name": "linking.wast",
+      "upstream_path": "test/core/linking.wast"
+    },
+    {
+      "name": "load.wast",
+      "upstream_path": "test/core/load.wast"
+    },
+    {
+      "name": "local_get.wast",
+      "upstream_path": "test/core/local_get.wast"
+    },
+    {
+      "name": "local_init.wast",
+      "upstream_path": "test/core/local_init.wast"
+    },
+    {
+      "name": "local_set.wast",
+      "upstream_path": "test/core/local_set.wast"
+    },
+    {
+      "name": "local_tee.wast",
+      "upstream_path": "test/core/local_tee.wast"
+    },
+    {
+      "name": "loop.wast",
+      "upstream_path": "test/core/loop.wast"
+    },
+    {
+      "name": "memory.wast",
+      "upstream_path": "test/core/memory.wast"
+    },
+    {
+      "name": "memory_grow.wast",
+      "upstream_path": "test/core/memory_grow.wast"
+    },
+    {
+      "name": "memory_redundancy.wast",
+      "upstream_path": "test/core/memory_redundancy.wast"
+    },
+    {
+      "name": "memory_size.wast",
+      "upstream_path": "test/core/memory_size.wast"
+    },
+    {
+      "name": "memory_trap.wast",
+      "upstream_path": "test/core/memory_trap.wast"
+    },
+    {
+      "name": "names.wast",
+      "upstream_path": "test/core/names.wast"
+    },
+    {
+      "name": "nop.wast",
+      "upstream_path": "test/core/nop.wast"
+    },
+    {
+      "name": "obsolete-keywords.wast",
+      "upstream_path": "test/core/obsolete-keywords.wast"
+    },
+    {
+      "name": "ref.wast",
+      "upstream_path": "test/core/ref.wast"
+    },
+    {
+      "name": "ref_as_non_null.wast",
+      "upstream_path": "test/core/ref_as_non_null.wast"
+    },
+    {
+      "name": "ref_func.wast",
+      "upstream_path": "test/core/ref_func.wast"
+    },
+    {
+      "name": "ref_is_null.wast",
+      "upstream_path": "test/core/ref_is_null.wast"
+    },
+    {
+      "name": "ref_null.wast",
+      "upstream_path": "test/core/ref_null.wast"
+    },
+    {
+      "name": "return.wast",
+      "upstream_path": "test/core/return.wast"
+    },
+    {
+      "name": "return_call.wast",
+      "upstream_path": "test/core/return_call.wast"
+    },
+    {
+      "name": "return_call_indirect.wast",
+      "upstream_path": "test/core/return_call_indirect.wast"
+    },
+    {
+      "name": "return_call_ref.wast",
+      "upstream_path": "test/core/return_call_ref.wast"
+    },
+    {
+      "name": "select.wast",
+      "upstream_path": "test/core/select.wast"
+    },
+    {
+      "name": "skip-stack-guard-page.wast",
+      "upstream_path": "test/core/skip-stack-guard-page.wast"
+    },
+    {
+      "name": "stack.wast",
+      "upstream_path": "test/core/stack.wast"
+    },
+    {
+      "name": "start.wast",
+      "upstream_path": "test/core/start.wast"
+    },
+    {
+      "name": "store.wast",
+      "upstream_path": "test/core/store.wast"
+    },
+    {
+      "name": "switch.wast",
+      "upstream_path": "test/core/switch.wast"
+    },
+    {
+      "name": "table.wast",
+      "upstream_path": "test/core/table.wast"
+    },
+    {
+      "name": "table_get.wast",
+      "upstream_path": "test/core/table_get.wast"
+    },
+    {
+      "name": "table_grow.wast",
+      "upstream_path": "test/core/table_grow.wast"
+    },
+    {
+      "name": "table_set.wast",
+      "upstream_path": "test/core/table_set.wast"
+    },
+    {
+      "name": "table_size.wast",
+      "upstream_path": "test/core/table_size.wast"
+    },
+    {
+      "name": "token.wast",
+      "upstream_path": "test/core/token.wast"
+    },
+    {
+      "name": "traps.wast",
+      "upstream_path": "test/core/traps.wast"
+    },
+    {
+      "name": "type-canon.wast",
+      "upstream_path": "test/core/type-canon.wast"
+    },
+    {
+      "name": "type-equivalence.wast",
+      "upstream_path": "test/core/type-equivalence.wast"
+    },
+    {
+      "name": "type-rec.wast",
+      "upstream_path": "test/core/type-rec.wast"
+    },
+    {
+      "name": "type.wast",
+      "upstream_path": "test/core/type.wast"
+    },
+    {
+      "name": "unreachable.wast",
+      "upstream_path": "test/core/unreachable.wast"
+    },
+    {
+      "name": "unreached-invalid.wast",
+      "upstream_path": "test/core/unreached-invalid.wast"
+    },
+    {
+      "name": "unreached-valid.wast",
+      "upstream_path": "test/core/unreached-valid.wast"
+    },
+    {
+      "name": "unwind.wast",
+      "upstream_path": "test/core/unwind.wast"
+    },
+    {
+      "name": "utf8-custom-section-id.wast",
+      "upstream_path": "test/core/utf8-custom-section-id.wast"
+    },
+    {
+      "name": "utf8-import-field.wast",
+      "upstream_path": "test/core/utf8-import-field.wast"
+    },
+    {
+      "name": "utf8-import-module.wast",
+      "upstream_path": "test/core/utf8-import-module.wast"
+    },
+    {
+      "name": "utf8-invalid-encoding.wast",
+      "upstream_path": "test/core/utf8-invalid-encoding.wast"
+    }
+  ],
+  "targets_note": "ALL 97 test/core .wast files at pin 82cd4f9 are targets - no curation. 55 convert under the frozen flags and enter the runner; 42 are expected CONVERT-FAIL (list below). The runner classifies every command of every converted file as modules_ok / registered / actions_ok / PASS / FAIL / UNSUPPORTED with per-file accounting identity; UNSUPPORTED always carries a reason tied to a frozen boundary.",
+  "expected_convert_fail": [
+    "align.wast",
+    "annotations.wast",
+    "binary-leb128.wast",
+    "binary.wast",
+    "br_if.wast",
+    "br_on_non_null.wast",
+    "br_on_null.wast",
+    "br_table.wast",
+    "call_indirect.wast",
+    "call_ref.wast",
+    "data.wast",
+    "elem.wast",
+    "exports.wast",
+    "func.wast",
+    "global.wast",
+    "id.wast",
+    "imports.wast",
+    "instance.wast",
+    "linking.wast",
+    "local_init.wast",
+    "local_tee.wast",
+    "memory.wast",
+    "ref.wast",
+    "ref_as_non_null.wast",
+    "ref_func.wast",
+    "ref_is_null.wast",
+    "ref_null.wast",
+    "return_call.wast",
+    "return_call_indirect.wast",
+    "return_call_ref.wast",
+    "select.wast",
+    "table.wast",
+    "table_get.wast",
+    "table_grow.wast",
+    "table_set.wast",
+    "table_size.wast",
+    "token.wast",
+    "type-canon.wast",
+    "type-equivalence.wast",
+    "type-rec.wast",
+    "unreached-invalid.wast",
+    "unreached-valid.wast"
+  ],
+  "expected_convert_fail_note": "Derived from the phase-1 sweep (build/report/m5_sweep.json): each failure's wast2json stderr is recorded in build/report/m5_conversion_report.json. Groups: reference-types/externref syntax (br_table, br_if via typed select, global, imports, linking, ref_*, select, table_*, local_init, local_tee, call_indirect, elem, func, unreached-*, type-equivalence); GC/typed-function-references (call_ref, return_call_ref, br_on_*, type-canon, type-rec, ref_as_non_null); tail-call (return_call, return_call_indirect); multi-memory/memory64-era syntax (memory, table, instance, exports, imports, align 64-bit offset); annotations (annotations, id); bulk-memory/passive segments (data, token); binary-format update beyond pinned WABT (binary, binary-leb128).",
+  "judgment_boundaries": {
+    "invalid_binary_texts": [
+      "constant expression required",
+      "start function",
+      "type mismatch",
+      "unknown function",
+      "unknown label",
+      "unknown local",
+      "unknown table",
+      "unknown type"
+    ],
+    "malformed_binary_texts": [
+      "data count and data section have inconsistent lengths",
+      "function and code section have inconsistent lengths",
+      "length out of bounds",
+      "malformed UTF-8 encoding",
+      "malformed section id",
+      "unexpected end"
+    ],
+    "trap_texts": [
+      "integer divide by zero",
+      "integer overflow",
+      "invalid conversion to integer",
+      "out of bounds memory access",
+      "undefined element",
+      "unreachable"
+    ],
+    "exhaustion_texts": [
+      "call stack exhausted"
+    ],
+    "uninstantiable_texts": [
+      "unreachable"
+    ],
+    "action_types": [
+      "invoke"
+    ],
+    "command_types": [
+      "action",
+      "assert_exhaustion",
+      "assert_invalid",
+      "assert_malformed",
+      "assert_return",
+      "assert_trap",
+      "assert_uninstantiable",
+      "module",
+      "register"
+    ],
+    "note": "Fail-closed enumeration from the phase-1 sweep: convert_m5.py rebuilds this inventory from the converted JSON (build/report/m5_text_inventory.json) and exits nonzero if any BINARY assert_invalid/assert_malformed text, trap/exhaustion/uninstantiable text, action type, or command type outside these sets appears - a new judgment surface must be enumerated here first, never absorbed silently. TEXT-format assert_malformed/assert_invalid texts are not constrained: those commands are UNSUPPORTED (no .wat parser at this milestone) and their texts are inventory-only."
+  }
+}
