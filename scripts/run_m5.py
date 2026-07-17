@@ -253,6 +253,8 @@ class _Runner:
         src = cmd.get("name")
         inst = self.named.get(src) if src else self.current
         if inst is None:
+            # a re-register of an existing alias must not leave the OLD instance importable
+            self.store.registered.pop(cmd["as"], None)
             chain = (self.named_reason.get(src) if src else self.current_reason)
             if chain is not None and chain[0] is None:     # chained: module was out of surface
                 fr.unsupported += 1
@@ -461,19 +463,24 @@ def main() -> int:
     for r in results:
         grand_reasons.update(r.unsupported_reasons)
 
+    # a targeted --json run is NOT the full-sweep account: it gets its own output file and
+    # an explicit partial label, and never overwrites the canonical evidence
+    partial = bool(args.json)
     summary = {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "milestone": "M5",
-        "scope": "full test/core sweep under frozen pin+flags (55 convertible files)",
+        "scope": (f"PARTIAL targeted run over {len(results)} file(s) via --json — "
+                  "NOT the full-sweep account" if partial else
+                  "full test/core sweep under frozen pin+flags (55 convertible files)"),
         "oracle": "frozen expected values/texts authored by the spec reference interpreter",
         "files": [r.as_dict(args.fail_details) for r in results],
         "totals": {**tot, "unsupported_reasons": dict(sorted(grand_reasons.items()))},
     }
     REPORT.mkdir(parents=True, exist_ok=True)
-    out = REPORT / "m5_summary.json"
+    out = REPORT / ("m5_summary_partial.json" if partial else "m5_summary.json")
     out.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
-    log(f"\n=== M5 full-sweep summary ===")
+    log(f"\n=== M5 {'PARTIAL targeted' if partial else 'full-sweep'} summary ===")
     log(f"files={len(results)} commands={tot['total']} modules_ok={tot['modules_ok']} "
         f"registered={tot['registered']} actions_ok={tot['actions_ok']}")
     log(f"PASS={tot['PASS']}  FAIL={tot['FAIL']}  UNSUPPORTED={tot['UNSUPPORTED']}")

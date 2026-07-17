@@ -517,6 +517,12 @@ def decode(data: bytes) -> Module:
                     m.imports.append(Import(mod, fld, "global", (vt, mut == 1)))
                 else:
                     raise DecodeError("malformed import kind")
+            # the single-table/single-memory MVP limit must also bind IMPORT-only modules
+            # (the definition sections below count imports, but never run when absent)
+            if len(m.imported("table")) > 1:
+                raise Unsupported("multi-table (imported) beyond frozen flags")
+            if len(m.imported("memory")) > 1:
+                raise Unsupported("multi-memory (imported) beyond frozen flags")
         elif sec_id == 3:
             for _ in range(sr.uleb()):
                 m.func_typeidx.append(sr.uleb())

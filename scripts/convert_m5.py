@@ -153,7 +153,11 @@ def main() -> int:
         src = core / base
         stem = src.stem
         if not src.exists():
+            # a missing upstream source must NEVER masquerade as an ordinary CONVERT-FAIL:
+            # it would keep the frozen 55/42 tallies green while the sweep silently examined
+            # fewer than the claimed 97 files. Tracked separately and fatal below.
             files.append({"name": base, "ok": False, "returncode": None,
+                          "missing_source": True,
                           "stderr": [f"source .wast missing: {src}"]})
             log(f"  MISSING {base}")
             continue
@@ -165,6 +169,7 @@ def main() -> int:
             log(f"  CONVERT-FAIL {rec['name']:28} rc={rec['returncode']}")
         files.append(rec)
 
+    missing_sources = sorted(f["name"] for f in files if f.get("missing_source"))
     actual_fail = sorted(f["name"] for f in files if not f["ok"])
     expected_fail = sorted(m5["expected_convert_fail"])
     drift = []
@@ -182,7 +187,8 @@ def main() -> int:
         "wast2json_path": str(wast2json), "guardrail_flags": flags,
         "spec_commit": m5["spec"]["commit"],
         "converted_ok": len(files) - len(actual_fail), "convert_fail": len(actual_fail),
-        "convert_fail_names": actual_fail, "drift_vs_expected": drift,
+        "convert_fail_names": actual_fail, "missing_sources": missing_sources,
+        "drift_vs_expected": drift,
         "total_commands": sum(f.get("total_commands", 0) for f in files if f.get("ok")),
         "files": files,
     }
@@ -196,6 +202,10 @@ def main() -> int:
     log(f"\n{ok_n}/{len(files)} converted; {len(actual_fail)} CONVERT-FAIL (recorded); "
         f"{conv_report['total_commands']} commands")
     log("wrote build/report/m5_conversion_report.json, build/report/m5_text_inventory.json")
+    if missing_sources:
+        log(f"MISSING SOURCE .wast (fatal — the sweep did NOT examine all "
+            f"{len(files)} manifest targets): {missing_sources}")
+        return 1
     if drift:
         log(f"CONVERT-FAIL DRIFT vs manifest expectation: {drift}")
         return 1

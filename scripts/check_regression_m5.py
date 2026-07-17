@@ -11,9 +11,18 @@ Re-runs the FROZEN M0–M4 pipeline in the m4.yml order and ASSERTS the locked c
                   committed evidence must be byte-identical)
     M4 execution  PASS=65   FAIL=0  UNSUPPORTED=135
 
-plus: `git status --porcelain` must show NO modification to any tracked pre-existing file —
-M5 is additive-only (untracked new files are expected and fine; enumerate_m4's re-derived
-scope artifacts must be byte-identical to the committed ones or they show up here).
+plus the additive-tree gate, enforced at BOTH layers:
+
+  1. worktree: `git status --porcelain` must show NO modification to any tracked file
+     (untracked new files are expected and fine; enumerate_m4's re-derived scope artifacts
+     must be byte-identical to the committed ones or they show up here);
+  2. committed history: `git diff --name-status <M4-baseline> HEAD` may contain only
+     additions — the ONE sanctioned exception is README.md, which may be modified but only
+     with ZERO deleted lines (the additive M5 section). A clean CI checkout always passes
+     layer 1, so layer 2 is what actually binds committed changes to M0-M4 files.
+
+Requires history down to the frozen baseline commit (CI: actions/checkout fetch-depth: 0);
+a checkout too shallow to contain the baseline FAILS the gate rather than skipping it.
 
 Exit 0 iff every assertion holds. Run on Linux/WSL (WABT steps), typically LAST, after all
 M5 work:
@@ -27,6 +36,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# The frozen M0-M4 tree: main at the moment M5 branched ("Package M0-M4 method demo").
+# Everything that existed at this commit is the protected surface of the additive gate.
+BASELINE_SHA = "dc29ee836332e97dd42f858544c44a871ed5213d"
 
 
 def run(cmd: list[str]) -> None:
@@ -91,7 +104,42 @@ def main() -> int:
         failures.append(f"tracked pre-existing files modified: {modified}")
         print(f"  FAIL tracked files modified:\n    " + "\n    ".join(modified))
     else:
-        print("  ok   git status: no tracked pre-existing file modified (M5 is additive-only)")
+        print("  ok   git status: no tracked pre-existing file modified (worktree layer)")
+
+    # committed-history layer: on a clean CI checkout the porcelain check above is vacuous,
+    # so bind the COMMITTED tree to the frozen baseline as well. Additions only; README.md
+    # alone may be modified, and only additively (zero deleted lines).
+    diff = subprocess.run(["git", "diff", "--name-status", BASELINE_SHA, "HEAD"],
+                          cwd=ROOT, capture_output=True, text=True)
+    if diff.returncode != 0:
+        failures.append(
+            f"cannot diff against baseline {BASELINE_SHA[:12]} (shallow clone? "
+            f"fetch full history / fetch-depth: 0): {diff.stderr.strip()}")
+        print(f"  FAIL baseline diff unavailable: {diff.stderr.strip()}")
+    else:
+        bad: list[str] = []
+        for ln in diff.stdout.splitlines():
+            if not ln.strip():
+                continue
+            status, _, path = ln.partition("\t")
+            if status.startswith("A"):
+                continue
+            if status.startswith("M") and path == "README.md":
+                num = subprocess.run(["git", "diff", "--numstat", BASELINE_SHA, "HEAD",
+                                      "--", "README.md"], cwd=ROOT,
+                                     capture_output=True, text=True)
+                deleted = num.stdout.split()[1] if num.stdout.split() else "?"
+                if deleted == "0":
+                    continue
+                bad.append(f"README.md modified NON-additively ({deleted} deleted lines)")
+                continue
+            bad.append(ln)
+        if bad:
+            failures.append(f"non-additive committed changes vs baseline: {bad}")
+            print("  FAIL committed tree not additive vs baseline:\n    " + "\n    ".join(bad))
+        else:
+            print(f"  ok   committed tree vs baseline {BASELINE_SHA[:12]}: additions only "
+                  "(README.md additive-only)")
 
     if failures:
         print(f"\nREGRESSION GATE: {len(failures)} FAILURE(S)")

@@ -397,6 +397,40 @@ def test_import_type_matching() -> None:
         "memory max exceeds declared max")
 
 
+def test_import_count_limits() -> None:
+    """Review fix: the single-table/single-memory MVP limit must bind IMPORT-only modules
+    too — two imported memories/tables previously bypassed the definition-section checks."""
+    print("[import count limits]")
+
+    def expect_unsupported(raw: bytes, label: str) -> None:
+        try:
+            dec.decode(raw)
+        except dec.Unsupported:
+            check(True, label)
+            return
+        except Exception as e:                            # noqa: BLE001 — report exact class
+            check(False, f"{label}: wrong exception {type(e).__name__}: {e}")
+            return
+        check(False, f"{label}: accepted")
+
+    two_mems = module(
+        section(2, vec([name("spectest") + name("memory") + b"\x02\x00" + uleb(1),
+                        name("spectest") + name("memory") + b"\x02\x00" + uleb(1)])))
+    expect_unsupported(two_mems, "two imported memories -> Unsupported")
+    two_tables = module(
+        section(2, vec([name("spectest") + name("table") + b"\x01\x70\x00" + uleb(1),
+                        name("spectest") + name("table") + b"\x01\x70\x00" + uleb(1)])))
+    expect_unsupported(two_tables, "two imported tables -> Unsupported")
+    import_plus_defined = module(
+        section(2, vec([name("spectest") + name("memory") + b"\x02\x00" + uleb(1)])),
+        section(5, vec([b"\x00" + uleb(1)])))
+    expect_unsupported(import_plus_defined, "imported + defined memory -> Unsupported")
+    one_of_each = module(
+        section(2, vec([name("spectest") + name("memory") + b"\x02\x00" + uleb(1),
+                        name("spectest") + name("table") + b"\x01\x70\x00" + uleb(1)])))
+    check(dec.decode(one_of_each) is not None, "one memory + one table import decodes")
+
+
 def main() -> int:
     test_multivalue()
     test_calls_and_tables()
@@ -406,6 +440,7 @@ def main() -> int:
     test_float_through_machine()
     test_body_termination()
     test_import_type_matching()
+    test_import_count_limits()
     if FAILURES:
         print(f"\n{len(FAILURES)} FAILURE(S):")
         for f in FAILURES:

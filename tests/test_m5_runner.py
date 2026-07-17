@@ -143,6 +143,52 @@ def test_accounting_identity(tmp: Path) -> None:
           "buckets land exactly as designed (1 mod, 1 PASS, 2 FAIL, 2 UNSUP)")
 
 
+def test_register_alias_cleanup(tmp: Path) -> None:
+    print("[failed re-register drops the stale alias]")
+    r = new_runner(tmp)
+    fr = r.fr
+    r.cmd_module({"type": "module", "line": 1, "filename": "good.wasm"})
+    r.cmd_register({"type": "register", "line": 2, "as": "X"})
+    check((fr.registered, "X" in r.store.registered) == (1, True), "alias X registered")
+    r.cmd_module({"type": "module", "line": 3, "filename": "bad.wasm"})
+    r.cmd_register({"type": "register", "line": 4, "as": "X"})
+    check("X" not in r.store.registered,
+          "failed re-register drops stale alias (no import can bind the old instance)")
+    check((fr.registered, fr.failed) == (1, 2),
+          "re-register after FAIL module counted FAIL (bad module + register)")
+
+
+def test_partial_run_is_labeled(tmp: Path) -> None:
+    """Review fix: a --json targeted run must not overwrite the canonical full-sweep
+    summary, and must label itself PARTIAL."""
+    print("[targeted --json run writes a labeled partial report]")
+    (tmp / "good.wasm").write_bytes(GOOD)
+    synth = {"source_filename": "synthetic.wast",
+             "commands": [{"type": "module", "line": 1, "filename": "good.wasm"},
+                          invoke_f()]}
+    jp = tmp / "synthetic.json"
+    jp.write_text(__import__("json").dumps(synth), encoding="utf-8")
+
+    canonical = R.REPORT / "m5_summary.json"
+    before = canonical.read_bytes() if canonical.exists() else None
+    argv = sys.argv
+    try:
+        sys.argv = ["run_m5.py", "--json", str(jp)]
+        rc = R.main()
+    finally:
+        sys.argv = argv
+    check(rc == 0, "targeted run exits 0")
+    after = canonical.read_bytes() if canonical.exists() else None
+    check(before == after, "canonical m5_summary.json untouched by targeted run")
+    partial = R.REPORT / "m5_summary_partial.json"
+    check(partial.exists(), "m5_summary_partial.json written")
+    if partial.exists():
+        pj = __import__("json").loads(partial.read_text(encoding="utf-8"))
+        check(pj["scope"].startswith("PARTIAL targeted run"),
+              f"partial scope labeled: {pj['scope'][:60]!r}")
+        check(pj["totals"]["total"] == 2, "partial totals cover only the targeted file")
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -150,6 +196,8 @@ def main() -> int:
         test_unsupported_chain(tmp)
         test_stale_name_dropped(tmp)
         test_accounting_identity(tmp)
+        test_register_alias_cleanup(tmp)
+        test_partial_run_is_labeled(tmp)
     if FAILURES:
         print(f"\n{len(FAILURES)} FAILURE(S):")
         for f in FAILURES:
