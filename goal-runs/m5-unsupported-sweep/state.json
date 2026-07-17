@@ -1,0 +1,98 @@
+{
+  "schema_version": 5,
+  "runner": "claude-gah",
+  "slug": "m5-unsupported-sweep",
+  "goal": "Push UNSUPPORTED coverage across all test/core .wast files (floats, calls, globals, tables, loads, data, validation) on branch off dc29ee8; per-file accounting; pin+gate flags untouched; M0-M4 counts must not regress",
+  "scope": "NEW FILES ONLY: interp5/ (new pkg), scripts/convert_m5.py, scripts/run_m5.py, scripts/check_regression_m5.py, tests/test_m5_*.py, tests/positive_control_m5.py, manifest_m5.json, goal-runs/m5-unsupported-sweep/. FROZEN: interp/, tools/, all existing scripts/tests/manifests/workflows/goal-runs artifacts.",
+  "size": "standard",
+  "risk_level": "medium",
+  "delegation_mode": "standard-multi-agent",
+  "status": "completed",
+  "status_note": "PASS=17053 FAIL=0 UNSUPPORTED=447 over 18149 commands / 55 files; 42 CONVERT-FAIL recorded; M0-M4 locked counts reproduced; additive-only tree; commit/push awaits owner. Cosmetic auditor note (selftest Windows guard) fixed post-audit.",
+  "audit_mode": "independent-subagents",
+  "plan_gate": "pass",
+  "execution_gate": "pass",
+  "wait_policy": "required-auditors-blocking",
+  "native_goal": {
+    "active": false,
+    "reason": ""
+  },
+  "created_at_utc": "2026-07-13T20:20:49+00:00",
+  "updated_at_utc": "2026-07-13T21:18:35+00:00",
+  "acceptance_criteria": [
+    "AC1 convert_m5: 55 ok / 42 CONVERT-FAIL recorded with stderr reasons; pin+flags byte-equal manifest_m0; outputs only under build/converted_m5/ and build/report/m5_*",
+    "AC2 run_m5 over all 55 files: per-file identity modules_ok+registered+actions_ok+PASS+FAIL+UNSUPPORTED==total; no silent drop; unknown ctype classified",
+    "AC3 every valid module command passes interp5.validator before instantiation; validator rejection of corpus module = FAIL (negative control)",
+    "AC4 positive controls flip every PASS class to FAIL (int/float/nan/multi-value return, trap text, exhaustion, invalid, malformed, uninstantiable)",
+    "AC5 regression script exits 0: M0 0/1035, M1 877/0/136, M2 51/0/4, M3 45/0/60, M4 65/0/135; zero modifications to tracked pre-existing files (git status)",
+    "AC6 account.md: per-file PASS/FAIL/UNSUPPORTED/CONVERT-FAIL each with reason + stop boundaries; no commit/push"
+  ],
+  "non_goals": [
+    "No pin change",
+    "no disable_features change",
+    "no edits to prior manifests/scope artifacts/locked counts",
+    "no merge to main",
+    "no push"
+  ],
+  "required_subagents": [
+    {
+      "name": "plan-auditor",
+      "role": "plan-audit",
+      "required": true,
+      "model": "inherit",
+      "status": "pass",
+      "decision": "pass",
+      "completed_at_utc": "2026-07-13T20:41:53+00:00",
+      "artifact_ref": "plan-audit-r2",
+      "summary": ""
+    },
+    {
+      "name": "execution-auditor",
+      "role": "execution-audit",
+      "required": true,
+      "model": "inherit",
+      "status": "pass",
+      "decision": "pass",
+      "completed_at_utc": "2026-07-13T21:18:35+00:00",
+      "artifact_ref": "exec-audit-r1",
+      "summary": ""
+    }
+  ],
+  "optional_subagents": [],
+  "subagent_results": [
+    {
+      "name": "plan-auditor",
+      "role": "plan-audit",
+      "required": true,
+      "model": "inherit",
+      "status": "pass",
+      "decision": "pass",
+      "completed_at_utc": "2026-07-13T20:41:53+00:00",
+      "artifact_ref": "plan-audit-r2",
+      "summary": ""
+    },
+    {
+      "name": "execution-auditor",
+      "role": "execution-audit",
+      "required": true,
+      "model": "inherit",
+      "status": "pass",
+      "decision": "pass",
+      "completed_at_utc": "2026-07-13T21:18:35+00:00",
+      "artifact_ref": "exec-audit-r1",
+      "summary": ""
+    }
+  ],
+  "checkpoints": [
+    {
+      "time_utc": "2026-07-13T20:20:49+00:00",
+      "status": "planning",
+      "summary": "Run initialized."
+    },
+    {
+      "time_utc": "2026-07-13T21:18:35+00:00",
+      "status": "completed",
+      "summary": "run closed"
+    }
+  ]
+}

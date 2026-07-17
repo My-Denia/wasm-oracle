@@ -1,0 +1,91 @@
+# M5 Full test/core Sweep CI (Linux).
+name: M5 Full Sweep
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m5-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # check_regression_m5.py diffs the committed tree vs the frozen M0-M4 baseline
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned spec and WABT
+        run: python scripts/fetch_oracle.py
+      - name: Convert ALL test/core files (CONVERT-FAIL is data; drift or new judgment text exits nonzero)
+        run: python scripts/convert_m5.py
+      - name: Assert frozen conversion tallies
+        run: |
+          python - <<'PY'
+          import json
+          c = json.load(open('build/report/m5_conversion_report.json', encoding='utf-8'))
+          assert (c['converted_ok'], c['convert_fail']) == (55, 42), (c['converted_ok'], c['convert_fail'])
+          assert c['total_commands'] == 18149, c['total_commands']
+          assert c['drift_vs_expected'] == [], c['drift_vs_expected']
+          inv = json.load(open('build/report/m5_text_inventory.json', encoding='utf-8'))
+          assert inv['boundary_errors'] == [], inv['boundary_errors']
+          assert sum(inv['assert_malformed_text_texts'].values()) == 446, inv['assert_malformed_text_texts']
+          assert sum(inv['assert_invalid_text_texts'].values()) == 1, inv['assert_invalid_text_texts']
+          print('conversion tallies locked: 55 ok / 42 CONVERT-FAIL, 18149 commands, boundaries clean')
+          PY
+      - name: M5 float core unit tests (independent exact-rational reference)
+        run: python tests/test_m5_floats.py
+      - name: M5 executor unit tests
+        run: python tests/test_m5_machine.py
+      - name: M5 validator unit tests
+        run: python tests/test_m5_validator.py
+      - name: M5 runner chaining unit tests (FAIL/UNSUPPORTED chains, stale names)
+        run: python tests/test_m5_runner.py
+      - name: M5 decoder self-test vs pinned wasm-objdump (all module binaries)
+        run: python tests/test_m5_decoder_selftest.py
+      - name: M5 positive controls (every judgment class MUST be able to FAIL)
+        run: python tests/positive_control_m5.py
+      - name: M5 full-sweep execution (the account)
+        run: python scripts/run_m5.py
+      - name: Assert frozen M5 sweep tallies (any deviation fails)
+        run: |
+          python - <<'PY'
+          import json
+          s = json.load(open('build/report/m5_summary.json', encoding='utf-8'))
+          t = s['totals']
+          assert t['total'] == 18149, t
+          assert (t['PASS'], t['FAIL'], t['UNSUPPORTED']) == (17053, 0, 447), t
+          assert (t['modules_ok'], t['registered'], t['actions_ok']) == (605, 2, 42), t
+          # dict EQUALITY, not subset: a new silent UNSUPPORTED reason must fail this gate
+          assert t['unsupported_reasons'] == {
+              'assert_invalid on text-format module (no .wat parser at M5)': 1,
+              'assert_malformed on text-format module (no .wat parser at M5)': 446,
+          }, t['unsupported_reasons']
+          assert len(s['files']) == 55, len(s['files'])
+          for f in s['files']:
+              lhs = (f['modules_ok'] + f['registered'] + f['actions_ok']
+                     + f['PASS'] + f['FAIL'] + f['UNSUPPORTED'])
+              assert lhs == f['total'], (f['file'], lhs, f['total'])
+          print('M5 sweep tallies locked: PASS=17053 FAIL=0 UNSUPPORTED=447 over 18149; '
+                'identity holds for all 55 files')
+          PY
+      - name: Frozen M0-M4 non-regression gate (locked counts + additive tree)
+        run: python scripts/check_regression_m5.py
+      - name: Upload M5 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-full-sweep
+          path: |
+            build/report/m5_conversion_report.json
+            build/report/m5_text_inventory.json
+            build/report/m5_summary.json
