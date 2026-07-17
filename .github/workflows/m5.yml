@@ -46,6 +46,8 @@ jobs:
         run: python tests/test_m5_machine.py
       - name: M5 validator unit tests
         run: python tests/test_m5_validator.py
+      - name: M5 runner chaining unit tests (FAIL/UNSUPPORTED chains, stale names)
+        run: python tests/test_m5_runner.py
       - name: M5 decoder self-test vs pinned wasm-objdump (all module binaries)
         run: python tests/test_m5_decoder_selftest.py
       - name: M5 positive controls (every judgment class MUST be able to FAIL)

@@ -62,6 +62,16 @@ class LinkError(Exception):
     """An import this engine cannot resolve (host surface gap) — classified UNSUPPORTED."""
 
 
+class IncompatibleImport(LinkError):
+    """An import that RESOLVED but whose actual external type does not match the module's
+    declared import type (spec: "incompatible import type"). Unlike a plain LinkError this
+    is an engine/link-state deviation for oracle-valid modules — the runner counts it FAIL,
+    never UNSUPPORTED."""
+
+    def __init__(self, detail: str):
+        super().__init__(f"incompatible import type ({detail})")
+
+
 # ---- runtime objects -----------------------------------------------------------------------
 
 class Memory:
@@ -231,6 +241,44 @@ def _eval_const_expr(expr: list[Instr], globals_: list[GlobalCell]) -> int:
     raise Unsupported(f"non-constant initializer {ins.op}")
 
 
+def _limits_match(actual_min: int, actual_max: int | None,
+                  imp_min: int, imp_max: int | None) -> bool:
+    """Spec limits matching: {n2,m2} <= {n1,m1} iff n2 >= n1 and (m1 empty, or m2 nonempty
+    and m2 <= m1). actual_min is the CURRENT size (a grown memory/table matches by what it
+    is now, like the reference interpreter)."""
+    if actual_min < imp_min:
+        return False
+    return imp_max is None or (actual_max is not None and actual_max <= imp_max)
+
+
+def _check_import_type(module: Module, im, obj) -> None:
+    """External-type match of a resolved import against the module's declared import type.
+    Mismatch raises IncompatibleImport (spec text "incompatible import type")."""
+    if im.kind == "func":
+        want = module.types[im.desc]
+        if obj.ftype != want:
+            raise IncompatibleImport(
+                f"func {im.module}.{im.field}: export {obj.ftype} != declared {want}")
+    elif im.kind == "table":
+        _elemtype, (mn, mx) = im.desc
+        if not _limits_match(len(obj.entries), obj.max_size, mn, mx):
+            raise IncompatibleImport(
+                f"table {im.module}.{im.field}: export limits "
+                f"({len(obj.entries)},{obj.max_size}) do not match declared ({mn},{mx})")
+    elif im.kind == "memory":
+        mn, mx = im.desc
+        if not _limits_match(obj.n_pages, obj.max_pages, mn, mx):
+            raise IncompatibleImport(
+                f"memory {im.module}.{im.field}: export limits "
+                f"({obj.n_pages},{obj.max_pages}) do not match declared ({mn},{mx})")
+    elif im.kind == "global":
+        vt, mut = im.desc
+        if obj.valtype != vt or obj.mutable != mut:
+            raise IncompatibleImport(
+                f"global {im.module}.{im.field}: export "
+                f"({obj.valtype},mut={obj.mutable}) != declared ({vt},mut={mut})")
+
+
 def instantiate(module: Module, store: Store | None = None) -> Instance:
     """Decode-side structures -> a runnable Instance: resolve imports, allocate
     tables/memories/globals, apply active elem/data segments (bounds-checked, trapping with
@@ -241,6 +289,7 @@ def instantiate(module: Module, store: Store | None = None) -> Instance:
     inst = Instance(module)
     for im in module.imports:
         obj = store.resolve(im.module, im.field, im.kind)
+        _check_import_type(module, im, obj)
         if im.kind == "func":
             inst.funcs.append(obj)
         elif im.kind == "table":

@@ -189,8 +189,8 @@ class _FuncValidator:
             if not self.ctrls:                       # instruction after the final end
                 raise ValidationError(TYPE_MISMATCH)
             self._instr(ins)
-        if self.ctrls:                               # missing final end (decoder-guarded)
-            raise ValidationError(TYPE_MISMATCH)
+        if self.ctrls:                               # missing final end (the decoder rejects
+            raise ValidationError(TYPE_MISMATCH)     # this as malformed; kept as a backstop)
 
     def _instr(self, ins: Instr) -> None:
         op = ins.op

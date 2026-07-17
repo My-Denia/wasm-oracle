@@ -291,6 +291,112 @@ def test_float_through_machine() -> None:
           "f32.mul NaN operand -> canonical NaN bits")
 
 
+def test_body_termination() -> None:
+    """Review fix: a code body whose declared size runs out before a function-level `end`
+    is malformed ("END opcode expected") — the decoder must reject it, never return an
+    unterminated instruction list."""
+    print("[body termination]")
+    from interp5 import validator as VAL
+
+    def mod_with_body(body: bytes) -> bytes:
+        return module(
+            section(1, vec([functype([], [])])),
+            section(3, vec([uleb(0)])),
+            section(10, vec([code_entry([], body)])),
+        )
+
+    def expect_malformed(raw: bytes, label: str) -> None:
+        try:
+            dec.decode(raw)
+        except dec.DecodeError as e:
+            check(str(e) == dec.END_EXPECTED, f"{label}: text {str(e)!r}")
+            return
+        check(False, f"{label}: decoder accepted unterminated body")
+
+    expect_malformed(mod_with_body(bytes([0x01])), "bare nop, no end")
+    expect_malformed(mod_with_body(b""), "empty body, no end")
+    expect_malformed(mod_with_body(bytes([0x02, 0x40, 0x0B])),
+                     "block closed but function-level end missing")
+    check(dec.decode(mod_with_body(bytes([0x0B]))) is not None, "plain `end` body decodes")
+    check(dec.decode(mod_with_body(bytes([0x02, 0x40, 0x0B, 0x0B]))) is not None,
+          "block + function end decodes")
+    # Frozen boundary: instructions AFTER the function-level end still decode; the
+    # VALIDATOR rejects that shape (type mismatch), exactly as before this fix.
+    trailing = dec.decode(mod_with_body(bytes([0x0B, 0x01])))
+    check(trailing is not None, "trailing instr after final end still decodes")
+    try:
+        VAL.validate_module(trailing)
+        check(False, "validator accepted instr after final end")
+    except VAL.ValidationError as e:
+        check(str(e) == "type mismatch", "validator still rejects trailing instr")
+
+
+def test_import_type_matching() -> None:
+    """Review fix: a resolved import whose actual external type does not match the declared
+    import type must raise IncompatibleImport (spec "incompatible import type")."""
+    print("[import type matching]")
+    store = M.Store()
+    # provider: func "f" () -> i32, memory "m" {min 1, no max}
+    raw_a = module(
+        section(1, vec([functype([], [I32])])),
+        section(3, vec([uleb(0)])),
+        section(5, vec([b"\x00" + uleb(1)])),
+        section(7, vec([name("f") + b"\x00" + uleb(0), name("m") + b"\x02" + uleb(0)])),
+        section(10, vec([code_entry([], bytes([0x41, 42, 0x0B]))])),
+    )
+    inst_a = inst_of(raw_a, store)
+    store.registered["A"] = inst_a
+
+    def importer(*imports: bytes, ntypes: list[bytes] | None = None) -> bytes:
+        return module(
+            section(1, vec(ntypes if ntypes is not None else [functype([], [I32])])),
+            section(2, vec(list(imports))),
+        )
+
+    def expect_incompatible(raw: bytes, label: str) -> None:
+        try:
+            inst_of(raw, store)
+        except M.IncompatibleImport as e:
+            check(str(e).startswith("incompatible import type"), f"{label}: text {str(e)!r}")
+            return
+        except M.LinkError as e:
+            check(False, f"{label}: plain LinkError (would be UNSUPPORTED): {e}")
+            return
+        check(False, f"{label}: mismatched import accepted")
+
+    # func: exact signature match required
+    check(inst_of(importer(name("A") + name("f") + b"\x00" + uleb(0)), store) is not None,
+          "matching func import links")
+    expect_incompatible(
+        importer(name("A") + name("f") + b"\x00" + uleb(0),
+                 ntypes=[functype([I32], [I32])]),
+        "func signature mismatch")
+    # memory limits: actual {1,None} vs declared
+    check(inst_of(importer(name("A") + name("m") + b"\x02\x00" + uleb(1)), store) is not None,
+          "memory {min 1} import links")
+    expect_incompatible(importer(name("A") + name("m") + b"\x02\x00" + uleb(2)),
+                        "memory min too large")
+    expect_incompatible(importer(name("A") + name("m") + b"\x02\x01" + uleb(1) + uleb(5)),
+                        "declared max but actual has none")
+    # grown memory matches by CURRENT size (reference-interpreter behavior)
+    inst_a.mems[0].grow(2)
+    check(inst_of(importer(name("A") + name("m") + b"\x02\x00" + uleb(3)), store) is not None,
+          "grown memory matches by current size")
+    # spectest globals are immutable i32/i64/f32/f64
+    check(inst_of(importer(name("spectest") + name("global_i32") + b"\x03\x7F\x00"), store)
+          is not None, "spectest.global_i32 (i32, const) links")
+    expect_incompatible(importer(name("spectest") + name("global_i32") + b"\x03\x7F\x01"),
+                        "global mutability mismatch")
+    expect_incompatible(importer(name("spectest") + name("global_i32") + b"\x03\x7E\x00"),
+                        "global valtype mismatch")
+    # spectest memory is {1,2}: max must be covered when declared
+    check(inst_of(importer(name("spectest") + name("memory") + b"\x02\x01" + uleb(1) + uleb(2)),
+                  store) is not None, "spectest.memory {1,2} links")
+    expect_incompatible(
+        importer(name("spectest") + name("memory") + b"\x02\x01" + uleb(1) + uleb(1)),
+        "memory max exceeds declared max")
+
+
 def main() -> int:
     test_multivalue()
     test_calls_and_tables()
@@ -298,6 +404,8 @@ def main() -> int:
     test_exhaustion_and_start()
     test_linking()
     test_float_through_machine()
+    test_body_termination()
+    test_import_type_matching()
     if FAILURES:
         print(f"\n{len(FAILURES)} FAILURE(S):")
         for f in FAILURES:

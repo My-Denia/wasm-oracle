@@ -31,6 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 UNEXPECTED_END = "unexpected end"
+END_EXPECTED = "END opcode expected"
 LENGTH_OOB = "length out of bounds"
 MALFORMED_SECTION_ID = "malformed section id"
 FUNC_CODE_MISMATCH = "function and code section have inconsistent lengths"
@@ -434,11 +435,27 @@ def _instr(r: _Reader) -> Instr:
 
 
 def _decode_instrs(r: _Reader, end: int) -> list[Instr]:
+    """Decode a function body up to its declared size boundary. The body MUST contain a
+    function-level `end` (sticky `closed` below): a size that runs out before it is the
+    spec-malformed "END opcode expected". Instructions AFTER a function-level `end` are
+    deliberately still decoded — the validator rejects that shape (frozen boundary)."""
     body: list[Instr] = []
+    depth = 0
+    closed = False
     while r.p < end:
-        body.append(_instr(r))
+        ins = _instr(r)
+        body.append(ins)
+        if ins.op in ("block", "loop", "if"):
+            depth += 1
+        elif ins.op == "end":
+            if depth == 0:
+                closed = True
+            else:
+                depth -= 1
     if r.p != end:
         raise DecodeError("section size mismatch")
+    if not closed:
+        raise DecodeError(END_EXPECTED)
     return body
 
 

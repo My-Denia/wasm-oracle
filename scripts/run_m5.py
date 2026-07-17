@@ -128,9 +128,12 @@ class _Runner:
         self.fr = fr
         self.store = M.Store()
         self.current: M.Instance | None = None
-        self.current_reason: str | None = None            # why current is None (chaining)
+        # chaining state for a missing instance: (bucket, text) where bucket None means the
+        # module was UNSUPPORTED (out of surface — chain stays UNSUPPORTED) and bucket False
+        # means the module FAILED (our deviation — everything chained to it is also FAIL).
+        self.current_reason: tuple[None | bool, str] | None = None
         self.named: dict[str, M.Instance] = {}
-        self.named_reason: dict[str, str] = {}
+        self.named_reason: dict[str, tuple[None | bool, str]] = {}
 
     # -- helpers --
 
@@ -145,21 +148,26 @@ class _Runner:
             fr.failed += 1
             fr.fail_details.append(f"line {cmd.get('line')}: {detail}")
 
-    def _instance_for(self, action: dict) -> tuple[M.Instance | None, str]:
+    def _instance_for(self, action: dict) -> tuple[M.Instance | None,
+                                                   tuple[None | bool, str]]:
+        """Returns (instance, (bucket, text)). No recorded chain reason means the harness
+        itself lost track of an instance — that is fail-closed (bucket False), never
+        UNSUPPORTED."""
         mod = action.get("module")
         if mod is not None:
             inst = self.named.get(mod)
-            return inst, self.named_reason.get(mod, f"named module {mod!r} not instantiated")
-        return self.current, self.current_reason or "no live module instance"
+            return inst, self.named_reason.get(
+                mod, (False, f"named module {mod!r} not instantiated"))
+        return self.current, self.current_reason or (False, "no live module instance")
 
     def _invoke(self, action: dict):
         """Run an invoke action. Returns (results, None) or (None, (bucket, detail)) where
         bucket is False for FAIL or None for UNSUPPORTED."""
         if action.get("type") != "invoke":
             return None, (None, f"action type {action.get('type')!r} out of M5 scope")
-        inst, reason = self._instance_for(action)
+        inst, chain = self._instance_for(action)
         if inst is None:
-            return None, (None, reason)
+            return None, chain                             # (bucket, text): FAIL chains FAIL
         field = action.get("field")
         try:
             args = [decode_operand(a) for a in action.get("args", [])]
@@ -168,6 +176,8 @@ class _Runner:
             return None, (False, f"export {field!r} not found")
         except M.Trap as t:
             return None, ("trap", t)                       # caller decides pass/fail
+        except M.IncompatibleImport as e:
+            return None, (False, f"link deviation in {field!r}: {e}")
         except (dec.Unsupported, M.LinkError) as e:
             return None, (None, f"out-of-surface in {field!r}: {e}")
         except (ValueError, IndexError) as e:
@@ -184,8 +194,9 @@ class _Runner:
         if not wp or not wp.exists():
             fr.failed += 1
             fr.fail_details.append(f"line {cmd.get('line')}: module binary missing: {fn}")
+            self._module_failed(name, (False, f"module binary missing: {fn}"))
             return
-        reason = None
+        chain: tuple[None | bool, str]
         try:
             module = dec.decode(wp.read_bytes())
             VAL.validate_module(module)                    # standing negative control (AC3)
@@ -194,43 +205,62 @@ class _Runner:
             self.current = inst
             if name:
                 self.named[name] = inst
+                self.named_reason.pop(name, None)          # name is live again
             return
         except dec.Unsupported as e:
             reason = f"module beyond frozen surface: {e}"
             fr.unsupported += 1
             fr.unsupported_reasons[reason] += 1
+            chain = (None, reason)
+        except M.IncompatibleImport as e:                  # link-state deviation, never UNSUP
+            reason = f"import link deviation on oracle-valid module: {e}"
+            fr.failed += 1
+            fr.fail_details.append(f"line {cmd.get('line')}: {reason}")
+            chain = (False, reason)
         except M.LinkError as e:
             reason = f"module import beyond host surface: {e}"
             fr.unsupported += 1
             fr.unsupported_reasons[reason] += 1
+            chain = (None, reason)
         except dec.DecodeError as e:
             reason = f"decoder rejected oracle-valid module: {e}"
             fr.failed += 1
             fr.fail_details.append(f"line {cmd.get('line')}: {reason}")
+            chain = (False, reason)
         except VAL.ValidationError as e:
             reason = f"validator rejected oracle-valid module: {e}"
             fr.failed += 1
             fr.fail_details.append(f"line {cmd.get('line')}: {reason}")
+            chain = (False, reason)
         except M.Trap as t:
             reason = f"instantiation trapped unexpectedly: {t.kind}"
             fr.failed += 1
             fr.fail_details.append(f"line {cmd.get('line')}: {reason}")
-        self.current_reason = reason
+            chain = (False, reason)
+        self._module_failed(name, chain)
+
+    def _module_failed(self, name: str | None, chain: tuple[None | bool, str]) -> None:
+        """Record why the current module is unavailable and — crucially — drop any STALE
+        instance previously registered under the same script name, so later commands can
+        never silently target the old module."""
+        self.current_reason = chain
         if name:
-            self.named_reason[name] = reason
+            self.named.pop(name, None)
+            self.named_reason[name] = chain
 
     def cmd_register(self, cmd: dict) -> None:
         fr = self.fr
         src = cmd.get("name")
         inst = self.named.get(src) if src else self.current
         if inst is None:
-            reason = (self.named_reason.get(src) if src else self.current_reason)
-            if reason:                                     # chained: module was out of surface
+            chain = (self.named_reason.get(src) if src else self.current_reason)
+            if chain is not None and chain[0] is None:     # chained: module was out of surface
                 fr.unsupported += 1
-                fr.unsupported_reasons[f"register skipped: {reason}"] += 1
-            else:
+                fr.unsupported_reasons[f"register skipped: {chain[1]}"] += 1
+            else:                                          # FAIL-chained or untracked: FAIL
+                detail = chain[1] if chain else "register with no live instance"
                 fr.failed += 1
-                fr.fail_details.append(f"line {cmd.get('line')}: register with no live instance")
+                fr.fail_details.append(f"line {cmd.get('line')}: register skipped: {detail}")
             return
         self.store.registered[cmd["as"]] = inst
         fr.registered += 1
@@ -343,6 +373,9 @@ class _Runner:
                 self._tally(True, "ok", cmd)
             else:
                 self._tally(False, f"instantiation trap {t.kind!r} != expected {want!r}", cmd)
+            return
+        except M.IncompatibleImport as e:
+            self._tally(False, f"import link deviation: {e}", cmd)
             return
         except M.LinkError as e:
             self._tally(None, f"import beyond host surface: {e}", cmd)
